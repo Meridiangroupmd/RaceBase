@@ -147,46 +147,44 @@ function initDesertObjects() {
 function initForestObjects() {
   trees = []; streetLamps = []; fallenLogs = []; undergrowth = [];
   roadMarkers = []; fallenLeaves = []; treeShadows = []; dappleSpots = [];
-  for (let y = -100; y < H + 200; y += rng(30, 55)) {
-    for (let side = -1; side <= 1; side += 2) {
-      const baseX = side > 0 ? ROAD_R + rng(15, SHOULDER_W + 40) : ROAD_L - rng(15, SHOULDER_W + 40);
-      trees.push({ x: baseX, y, layer: 0, canopyR: rng(18, 30), trunkH: rng(10, 18), side });
-      if (Math.random() < 0.6) {
-        const x2 = side > 0 ? ROAD_R + rng(5, SHOULDER_W) : ROAD_L - rng(5, SHOULDER_W);
-        trees.push({ x: x2, y: y + rng(-10, 10), layer: 1, canopyR: rng(24, 40), trunkH: rng(12, 22), side });
-      }
-    }
+  const CYCLE = 2000;
+  // Trees — fewer, use cycle
+  for (let i = 0; i < 16; i++) {
+    const side = i % 2 === 0 ? 1 : -1;
+    const baseX = side > 0 ? ROAD_R + rng(15, SHOULDER_W + 30) : ROAD_L - rng(15, SHOULDER_W + 30);
+    trees.push({ x: baseX, y: i * (CYCLE / 16), layer: 0, canopyR: rng(20, 32), trunkH: rng(10, 16), side, cycle: CYCLE });
+    const x2 = side > 0 ? ROAD_R + rng(5, SHOULDER_W) : ROAD_L - rng(5, SHOULDER_W);
+    trees.push({ x: x2, y: i * (CYCLE / 16) + rng(20, 60), layer: 1, canopyR: rng(26, 38), trunkH: rng(12, 20), side, cycle: CYCLE });
   }
-  for (let y = -100; y < H + 200; y += rng(250, 320)) {
-    const side = y % 560 < 280 ? 1 : -1;
-    const x = side > 0 ? ROAD_R - 4 : ROAD_L + 4;
-    streetLamps.push({ x, y, side });
+  // Street lamps — 4
+  for (let i = 0; i < 4; i++) {
+    const side = i % 2 === 0 ? 1 : -1;
+    streetLamps.push({ x: side > 0 ? ROAD_R - 4 : ROAD_L + 4, y: i * (CYCLE / 4), side, cycle: CYCLE });
   }
-  for (let y = -100; y < H + 200; y += rng(120, 220)) {
-    const side = Math.random() < 0.5 ? 1 : -1;
-    const x = side > 0 ? ROAD_R + rng(8, SHOULDER_W - 5) : ROAD_L - rng(8, SHOULDER_W - 5);
-    fallenLogs.push({ x, y, w: rng(25, 50), side });
+  // Fallen logs — 3
+  for (let i = 0; i < 3; i++) {
+    const side = i % 2 === 0 ? 1 : -1;
+    fallenLogs.push({ x: side > 0 ? ROAD_R + rng(10, SHOULDER_W - 10) : ROAD_L - rng(10, SHOULDER_W - 10), y: i * (CYCLE / 3) + 100, w: rng(25, 40), side, cycle: CYCLE });
   }
-  for (let y = -100; y < H + 200; y += rng(18, 35)) {
-    for (let side = -1; side <= 1; side += 2) {
-      const x = side > 0 ? ROAD_R + rng(4, SHOULDER_W - 4) : ROAD_L - rng(4, SHOULDER_W - 4);
-      undergrowth.push({ x, y, w: rng(8, 20), h: rng(5, 12) });
-    }
+  // Undergrowth — 10 total
+  for (let i = 0; i < 10; i++) {
+    const side = i % 2 === 0 ? 1 : -1;
+    undergrowth.push({ x: side > 0 ? ROAD_R + rng(4, SHOULDER_W - 4) : ROAD_L - rng(4, SHOULDER_W - 4), y: i * (CYCLE / 10), w: rng(10, 18), h: rng(6, 10), cycle: CYCLE });
   }
-  for (let y = -100; y < H + 200; y += rng(80, 160)) {
-    const side = Math.random() < 0.5 ? 1 : -1;
-    const x = side > 0 ? ROAD_R + 2 : ROAD_L - 6;
-    roadMarkers.push({ x, y, side });
+  // Road markers — 4
+  for (let i = 0; i < 4; i++) {
+    const side = i % 2 === 0 ? 1 : -1;
+    roadMarkers.push({ x: side > 0 ? ROAD_R + 2 : ROAD_L - 6, y: i * (CYCLE / 4) + 50, side, cycle: CYCLE });
   }
-  for (let i = 0; i < 35; i++) {
-    fallenLeaves.push({ x: ROAD_L + rng(0, ROAD_W), y: rng(-50, H + 50), rot: rng(0, Math.PI * 2), color: pick(['#aa8822', '#886611', '#cc9933', '#997722']), size: rng(3, 6) });
+  // Fallen leaves — 15 (was 35)
+  for (let i = 0; i < 15; i++) {
+    fallenLeaves.push({ x: ROAD_L + rng(0, ROAD_W), y: rng(0, CYCLE), color: pick(['#aa8822', '#886611', '#cc9933']), size: rng(3, 5), cycle: CYCLE });
   }
-  for (let i = 0; i < 12; i++) {
-    treeShadows.push({ y: rng(-50, H + 50), w: rng(40, ROAD_W * 0.6), angle: rng(-0.3, 0.3) });
+  // Tree shadows — 6 (was 12)
+  for (let i = 0; i < 6; i++) {
+    treeShadows.push({ y: i * (CYCLE / 6), w: rng(40, ROAD_W * 0.5), angle: rng(-0.2, 0.2), cycle: CYCLE });
   }
-  for (let i = 0; i < 20; i++) {
-    dappleSpots.push({ x: ROAD_L + rng(0, ROAD_W), y: rng(-50, H + 50), r: rng(4, 12) });
-  }
+  dappleSpots = [];
 }
 
 initDesertObjects();
@@ -792,36 +790,23 @@ function drawForest(c, scroll, alpha) {
   }
 
   // Tree shadows on road
+  c.fillStyle = 'rgba(0,0,0,0.08)';
   for (const ts of treeShadows) {
-    const ty = ((ts.y + scroll * 0.9) % (H + 100)) - 50;
-    c.save();
-    c.translate(ROAD_L + ROAD_W / 2, ty);
-    c.rotate(ts.angle);
-    c.fillStyle = 'rgba(0,0,0,0.09)';
-    c.fillRect(-ts.w / 2, -4, ts.w, 8);
-    c.restore();
-  }
-
-  // Dapple light spots
-  for (const dp of dappleSpots) {
-    const dy = ((dp.y + scroll * 0.85) % (H + 100)) - 50;
-    c.fillStyle = 'rgba(255,238,170,0.03)';
-    c.beginPath();
-    c.arc(dp.x, dy, dp.r, 0, Math.PI * 2);
-    c.fill();
+    const cyc = ts.cycle || 2000;
+    const ty = ((ts.y + scroll * 0.9) % cyc) - 50;
+    if (ty < -20 || ty > H + 20) continue;
+    c.fillRect(ROAD_L + ROAD_W / 2 - ts.w / 2, ty - 4, ts.w, 8);
   }
 
   // Fallen leaves
   for (const lf of fallenLeaves) {
-    const ly = ((lf.y + scroll) % (H + 100)) - 50;
-    c.save();
-    c.translate(lf.x, ly);
-    c.rotate(lf.rot);
+    const cyc = lf.cycle || 2000;
+    const ly = ((lf.y + scroll) % cyc) - 50;
+    if (ly < -20 || ly > H + 20) continue;
     c.fillStyle = lf.color;
     c.beginPath();
-    c.ellipse(0, 0, lf.size, lf.size * 0.5, 0, 0, Math.PI * 2);
+    c.ellipse(lf.x, ly, lf.size, lf.size * 0.5, 0, 0, Math.PI * 2);
     c.fill();
-    c.restore();
   }
 
   // Edge lines
@@ -851,7 +836,9 @@ function drawForest(c, scroll, alpha) {
 
   // Undergrowth
   for (const ug of undergrowth) {
-    const uy = ((ug.y + scroll) % (H + 200)) - 100;
+    const cyc = ug.cycle || 2000;
+    const uy = ((ug.y + scroll) % cyc) - 100;
+    if (uy < -20 || uy > H + 20) continue;
     c.fillStyle = '#0d1f08';
     c.beginPath();
     c.ellipse(ug.x, uy, ug.w, ug.h, 0, 0, Math.PI * 2);
@@ -861,7 +848,9 @@ function drawForest(c, scroll, alpha) {
   // Trees — back layer
   for (const tr of trees) {
     if (tr.layer !== 0) continue;
-    const ty = ((tr.y + scroll) % (H + 300)) - 100;
+    const cyc = tr.cycle || 2000;
+    const ty = ((tr.y + scroll) % cyc) - 100;
+    if (ty < -60 || ty > H + 60) continue;
     c.fillStyle = '#3a2a1a';
     c.fillRect(tr.x - 3, ty - tr.trunkH, 6, tr.trunkH);
     c.fillStyle = '#0d1a08';
@@ -873,7 +862,9 @@ function drawForest(c, scroll, alpha) {
   // Trees — front layer
   for (const tr of trees) {
     if (tr.layer !== 1) continue;
-    const ty = ((tr.y + scroll) % (H + 300)) - 100;
+    const cyc = tr.cycle || 2000;
+    const ty = ((tr.y + scroll) % cyc) - 100;
+    if (ty < -60 || ty > H + 60) continue;
     c.fillStyle = '#4a3a2a';
     c.fillRect(tr.x - 4, ty - tr.trunkH, 8, tr.trunkH);
     c.fillStyle = '#152810';
@@ -884,7 +875,9 @@ function drawForest(c, scroll, alpha) {
 
   // Fallen logs
   for (const fl of fallenLogs) {
-    const fy = ((fl.y + scroll) % (H + 320)) - 100;
+    const cyc = fl.cycle || 2000;
+    const fy = ((fl.y + scroll) % cyc) - 100;
+    if (fy < -20 || fy > H + 20) continue;
     c.fillStyle = '#4a3a1a';
     c.fillRect(fl.x - fl.w / 2, fy - 4, fl.w, 8);
     c.strokeStyle = '#3a2a10';
@@ -899,7 +892,9 @@ function drawForest(c, scroll, alpha) {
 
   // Street lamps
   for (const sl of streetLamps) {
-    const sy = ((sl.y + scroll) % (H + 420)) - 100;
+    const cyc = sl.cycle || 2000;
+    const sy = ((sl.y + scroll) % cyc) - 100;
+    if (sy < -60 || sy > H + 60) continue;
     c.strokeStyle = '#667755';
     c.lineWidth = 3;
     c.beginPath(); c.moveTo(sl.x, sy); c.lineTo(sl.x, sy - 40); c.stroke();
@@ -925,7 +920,9 @@ function drawForest(c, scroll, alpha) {
 
   // Road markers
   for (const rm of roadMarkers) {
-    const ry = ((rm.y + scroll) % (H + 260)) - 100;
+    const cyc = rm.cycle || 2000;
+    const ry = ((rm.y + scroll) % cyc) - 100;
+    if (ry < -20 || ry > H + 20) continue;
     c.fillStyle = '#cc4444';
     c.fillRect(rm.x, ry - 8, 4, 12);
   }
