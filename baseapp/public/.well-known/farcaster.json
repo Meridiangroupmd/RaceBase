@@ -7,13 +7,13 @@
   "frame": {
     "version": "1",
     "name": "RaceBase",
-    "iconUrl": "https://racebasee.vercel.app/icon.png",
-    "homeUrl": "https://racebasee.vercel.app",
-    "imageUrl": "https://racebasee.vercel.app/icon.png",
-    "splashImageUrl": "https://racebasee.vercel.app/icon.png",
-    "splashBackgroundColor": "#0a0a14",
     "subtitle": "Race to survive on Base",
     "description": "Top-down racing game on Base. Daily check-ins, race to earn points, dodge traffic across desert and forest biomes.",
+    "iconUrl": "https://racebasee.vercel.app/icon.png",
+    "homeUrl": "https://racebasee.vercel.app",
+    "imageUrl": "https://racebasee.vercel.app/og-image.png",
+    "splashImageUrl": "https://racebasee.vercel.app/icon.png",
+    "splashBackgroundColor": "#0a0a14",
     "primaryCategory": "games",
     "tags": ["gaming", "racing", "onchain", "base"]
   }
