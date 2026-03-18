@@ -7,7 +7,7 @@ import { base } from "viem/chains";
 import { CarIcon } from "./CarIcon";
 import { RACEBASE_ADDRESS, raceBaseAbi } from "@/config/contract";
 
-const BUILDER_CODE_SUFFIX = "0x626315f14797517a0080218021802180218021802180218021" as Hex;
+const BUILDER_CODE_SUFFIX = "0x62635f6c347977356c376d0b0080218021802180218021802180218021" as Hex;
 
 const publicClient = createPublicClient({
   chain: base,
