@@ -29,8 +29,7 @@ export function BaseAppGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      // TODO: remove `true ||` before production deploy
-      setAllowed(true || isInsideBaseApp());
+      setAllowed(isInsideBaseApp());
       setChecked(true);
     }, 300);
     return () => clearTimeout(timer);

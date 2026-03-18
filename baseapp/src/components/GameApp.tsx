@@ -1,8 +1,18 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { usePrivy } from "@privy-io/react-auth";
+import { useState, useEffect, useCallback } from "react";
+import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { encodeFunctionData, createPublicClient, http, type Hex } from "viem";
+import { base } from "viem/chains";
 import { CarIcon } from "./CarIcon";
+import { RACEBASE_ADDRESS, raceBaseAbi } from "@/config/contract";
+
+const BUILDER_CODE_SUFFIX = "0x626315f14797517a0080218021802180218021802180218021" as Hex;
+
+const publicClient = createPublicClient({
+  chain: base,
+  transport: http(),
+});
 
 export function GameApp() {
   const { ready, authenticated, login, user } = usePrivy();
@@ -389,15 +399,72 @@ function LandingScreen({
 }
 
 function MainScreen({ address }: { address: string }) {
-  const [checkedIn, setCheckedIn] = useState(false);
+  const { wallets } = useWallets();
+  const [canCheck, setCanCheck] = useState(false);
+  const [playerData, setPlayerData] = useState({ checkIns: BigInt(0), races: BigInt(0), streak: BigInt(0) });
+  const [loading, setLoading] = useState("");
+  const [txStatus, setTxStatus] = useState("");
+
+  const fetchPlayerData = useCallback(async () => {
+    try {
+      const [player, canCheckIn] = await Promise.all([
+        publicClient.readContract({
+          address: RACEBASE_ADDRESS,
+          abi: raceBaseAbi,
+          functionName: "getPlayer",
+          args: [address as `0x${string}`],
+        }),
+        publicClient.readContract({
+          address: RACEBASE_ADDRESS,
+          abi: raceBaseAbi,
+          functionName: "canCheckIn",
+          args: [address as `0x${string}`],
+        }),
+      ]);
+      setPlayerData({ checkIns: player[0], races: player[1], streak: player[3] });
+      setCanCheck(canCheckIn);
+    } catch {}
+  }, [address]);
+
+  useEffect(() => { fetchPlayerData(); }, [fetchPlayerData]);
+
+  const sendTx = async (functionName: "checkIn" | "race") => {
+    const wallet = wallets.find(w => w.address?.toLowerCase() === address.toLowerCase()) ?? wallets[0];
+    if (!wallet) return;
+    setLoading(functionName);
+    setTxStatus("");
+    try {
+      const provider = await wallet.getEthereumProvider();
+      const data = encodeFunctionData({ abi: raceBaseAbi, functionName });
+      const dataWithBuilder = (data + BUILDER_CODE_SUFFIX.slice(2)) as Hex;
+      const tx = await provider.request({
+        method: "eth_sendTransaction",
+        params: [{
+          from: address,
+          to: RACEBASE_ADDRESS,
+          data: dataWithBuilder,
+        }],
+      });
+      setTxStatus("Confirming...");
+      await publicClient.waitForTransactionReceipt({ hash: tx as `0x${string}` });
+      setTxStatus("Done!");
+      await fetchPlayerData();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Failed";
+      setTxStatus(msg.length > 40 ? msg.slice(0, 40) + "…" : msg);
+    } finally {
+      setLoading("");
+      setTimeout(() => setTxStatus(""), 3000);
+    }
+  };
+
   const now = new Date();
-  const resetHour = 1; // 01:00 UTC
+  const resetHour = 1;
   const nextReset = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + (now.getUTCHours() >= resetHour ? 1 : 0), resetHour));
   const hoursLeft = Math.max(0, Math.ceil((nextReset.getTime() - now.getTime()) / 3600000));
 
   return (
     <div className="relative flex min-h-[100dvh] flex-col items-center px-5 pt-8 pb-10" style={{ background: "linear-gradient(to bottom, #0d1117 0%, #121a2b 50%, #1a1a2e 100%)" }}>
-      {/* Subtle warm glow */}
       <div className="pointer-events-none absolute left-1/2 top-0 h-[30%] w-[120%] -translate-x-1/2"
         style={{ background: "radial-gradient(ellipse at center top, rgba(255,150,50,0.05) 0%, transparent 70%)" }}
       />
@@ -417,16 +484,21 @@ function MainScreen({ address }: { address: string }) {
         <CarIcon size={80} />
       </div>
 
-      {/* Check In section */}
-      <div className="relative z-10 mt-8 w-full max-w-sm">
+      {/* Status */}
+      {txStatus && (
+        <div className="relative z-10 mt-3 rounded-lg bg-zinc-800/80 px-4 py-2 text-xs text-zinc-300">
+          {txStatus}
+        </div>
+      )}
+
+      {/* Check In */}
+      <div className="relative z-10 mt-6 w-full max-w-sm">
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-5 backdrop-blur">
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-lg font-bold text-white">Daily Check-In</h2>
               <p className="mt-1 text-xs text-zinc-500">
-                {checkedIn
-                  ? `Done! Resets in ${hoursLeft}h`
-                  : "Check in once per day to earn rewards"}
+                {!canCheck ? `Done! Resets in ${hoursLeft}h` : "Check in once per day"}
               </p>
             </div>
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-400/10">
@@ -436,24 +508,22 @@ function MainScreen({ address }: { address: string }) {
             </div>
           </div>
           <button
-            onClick={() => setCheckedIn(true)}
-            disabled={checkedIn}
+            onClick={() => sendTx("checkIn")}
+            disabled={!canCheck || loading === "checkIn"}
             className="mt-4 w-full rounded-xl bg-yellow-400 py-3 text-center text-sm font-bold text-black transition-all hover:bg-yellow-300 active:scale-[0.97] disabled:bg-zinc-700 disabled:text-zinc-500"
           >
-            {checkedIn ? "Checked In" : "Check In"}
+            {loading === "checkIn" ? "Signing…" : !canCheck ? "Checked In ✓" : "Check In"}
           </button>
         </div>
       </div>
 
-      {/* Race section */}
+      {/* Race */}
       <div className="relative z-10 mt-4 w-full max-w-sm">
         <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-5 backdrop-blur">
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-lg font-bold text-white">Race</h2>
-              <p className="mt-1 text-xs text-zinc-500">
-                Start a race to earn points
-              </p>
+              <p className="mt-1 text-xs text-zinc-500">Start a race to earn points</p>
             </div>
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-cyan-400/10">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22d3ee" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -462,19 +532,21 @@ function MainScreen({ address }: { address: string }) {
             </div>
           </div>
           <button
-            className="mt-4 w-full rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 py-3 text-center text-sm font-bold text-white transition-all hover:from-cyan-400 hover:to-blue-500 active:scale-[0.97]"
+            onClick={() => sendTx("race")}
+            disabled={loading === "race"}
+            className="mt-4 w-full rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 py-3 text-center text-sm font-bold text-white transition-all hover:from-cyan-400 hover:to-blue-500 active:scale-[0.97] disabled:opacity-50"
           >
-            Start Race
+            {loading === "race" ? "Signing…" : "Start Race"}
           </button>
         </div>
       </div>
 
-      {/* Stats */}
+      {/* Stats — live from contract */}
       <div className="relative z-10 mt-4 grid w-full max-w-sm grid-cols-3 gap-3">
         {[
-          { label: "Streak", value: "0", icon: "🔥" },
-          { label: "Races", value: "0", icon: "🏁" },
-          { label: "Points", value: "0", icon: "⭐" },
+          { label: "Streak", value: playerData.streak.toString(), icon: "🔥" },
+          { label: "Races", value: playerData.races.toString(), icon: "🏁" },
+          { label: "Check-ins", value: playerData.checkIns.toString(), icon: "⭐" },
         ].map((s) => (
           <div key={s.label} className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3 text-center">
             <span className="text-lg">{s.icon}</span>
