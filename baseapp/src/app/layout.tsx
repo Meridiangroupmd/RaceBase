@@ -15,9 +15,14 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "RaceBase",
-  description: "Race to survive on Base",
+  description: "Top-down racing game on Base. Daily check-ins, race to earn points, dodge traffic across desert and forest biomes.",
   other: {
     "base:app_id": "69bb13c4147765ec21407738",
+  },
+  openGraph: {
+    title: "RaceBase",
+    description: "Race to survive on Base",
+    images: [{ url: "https://racebasee.vercel.app/banner.png", width: 1200, height: 630 }],
   },
 };
 
