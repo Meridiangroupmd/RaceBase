@@ -1,0 +1,7 @@
+{
+  "name": "RaceBase",
+  "description": "Top-down racing game on Base. Daily check-ins, race to earn points, dodge traffic across desert and forest biomes.",
+  "icon": "https://racebasee.vercel.app/icon.png",
+  "url": "https://racebasee.vercel.app",
+  "base:app_id": "69bb13c4147765ec21407738"
+}

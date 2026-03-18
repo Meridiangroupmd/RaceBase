@@ -1,0 +1,11 @@
+{
+  "accountAssociation": {},
+  "frame": {
+    "version": "1",
+    "name": "RaceBase",
+    "iconUrl": "https://racebasee.vercel.app/icon.png",
+    "homeUrl": "https://racebasee.vercel.app",
+    "splashImageUrl": "https://racebasee.vercel.app/icon.png",
+    "splashBackgroundColor": "#0a0a14"
+  }
+}
