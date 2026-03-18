@@ -1,0 +1,1815 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no">
+<title>Road Escape</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000}
+canvas{display:block;cursor:none}
+</style>
+</head>
+<body>
+<canvas id="gc"></canvas>
+<script>
+"use strict";
+// ═══════════════════════════════════════════
+//  ROAD ESCAPE — Complete Top-Down Racing Game
+// ═══════════════════════════════════════════
+
+const canvas = document.getElementById('gc');
+const ctx = canvas.getContext('2d');
+const offDesert = document.createElement('canvas');
+const ctxD = offDesert.getContext('2d');
+const offForest = document.createElement('canvas');
+const ctxF = offForest.getContext('2d');
+
+let W, H, ROAD_W, ROAD_L, ROAD_R, SHOULDER_W, LANE_W, NUM_LANES;
+
+function resize() {
+  W = canvas.width = offDesert.width = offForest.width = window.innerWidth;
+  H = canvas.height = offDesert.height = offForest.height = window.innerHeight;
+  ROAD_W = Math.min(W * 0.42, 320);
+  ROAD_L = (W - ROAD_W) / 2;
+  ROAD_R = ROAD_L + ROAD_W;
+  SHOULDER_W = ROAD_W * 0.55;
+  NUM_LANES = 3;
+  LANE_W = ROAD_W / NUM_LANES;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ═══════════ RANDOM UTILS ═══════════
+const rng = (a, b) => Math.random() * (b - a) + a;
+const rngI = (a, b) => Math.floor(rng(a, b));
+const pick = arr => arr[rngI(0, arr.length)];
+const lerp = (a, b, t) => a + (b - a) * t;
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const lerpColor = (c1, c2, t) => {
+  const p = (s, i) => parseInt(s.substr(i, 2), 16);
+  const r = Math.round(lerp(p(c1,1), p(c2,1), t));
+  const g = Math.round(lerp(p(c1,3), p(c2,3), t));
+  const b = Math.round(lerp(p(c1,5), p(c2,5), t));
+  return `rgb(${r},${g},${b})`;
+};
+
+// ═══════════ GAME STATE ═══════════
+const STATE = { MENU: 0, PLAYING: 1, PAUSED: 2, GAMEOVER: 3 };
+let gameState = STATE.MENU;
+let score = 0, bestScore = parseInt(localStorage.getItem('roadEscapeBest')) || 0;
+let distance = 0, lives = 3, speed = 0, baseSpeed = 4.5;
+let scrollOffset = 0, gameTime = 0, totalTime = 0;
+let nitroActive = false, nitroCooldown = 0, nitroTimer = 0;
+let invincible = false, invTimer = 0, flashCount = 0;
+let shakeTimer = 0, shakeX = 0, shakeY = 0;
+let redVignette = 0;
+let nearMissFlash = 0, nearMissText = '';
+let multiplier = 1;
+let biomeTransitions = 0;
+let difficultyTimer = 0, spawnRate = 0.018, speedCap = 1.3;
+let enemyTypePool = [0, 1, 2, 3, 4, 5, 6];
+let pauseAlpha = 0;
+let showFaq = false;
+const faqBtnRect = { x: 0, y: 0, w: 36, h: 36 };
+let menuScroll = 0;
+let fpsCounter = 0, fpsDisplay = 0, fpsTime = 0;
+
+// ═══════════ BIOME SYSTEM ═══════════
+const BIOME = { DESERT: 0, FOREST: 1 };
+let currentBiome = BIOME.DESERT;
+let nextBiome = BIOME.FOREST;
+let biomeTimer = 0;
+const BIOME_DURATION = 45;
+const TRANSITION_DURATION = 5;
+const BIOME_WARNING_TIME = 10;
+let transitioning = false;
+let transitionProgress = 0;
+let biomeBadge = { show: false, alpha: 0, y: -40, timer: 0, name: '', color: '' };
+let biomeWarningShown = false;
+let biomeWarningSign = { show: false, y: 0, alpha: 0 };
+
+// ═══════════ ROAD DECORATION POOLS ═══════════
+let cacti = [], rocks = [], roadSigns = [], utilityPoles = [], deadShrubs = [];
+let tumbleweeds = [], sandDrifts = [], desertCracks = [];
+let trees = [], streetLamps = [], fallenLogs = [], undergrowth = [], roadMarkers = [];
+let fallenLeaves = [], treeShadows = [], dappleSpots = [];
+
+function initDesertObjects() {
+  cacti = []; rocks = []; roadSigns = []; utilityPoles = [];
+  deadShrubs = []; tumbleweeds = []; sandDrifts = []; desertCracks = [];
+  const CYCLE = 3000;
+  // Cacti — 6 total, alternating sides, evenly spread across cycle
+  for (let i = 0; i < 6; i++) {
+    const side = i % 2 === 0 ? 1 : -1;
+    const x = side > 0 ? ROAD_R + rng(25, SHOULDER_W * 0.5) : ROAD_L - rng(25, SHOULDER_W * 0.5);
+    cacti.push({ x, y: i * (CYCLE / 6) + rng(0, 40), h: pick([22, 32, 44]), side, cycle: CYCLE });
+  }
+  // Rock formations — 3 total
+  for (let i = 0; i < 3; i++) {
+    const side = i % 2 === 0 ? -1 : 1;
+    const x = side > 0 ? ROAD_R + SHOULDER_W * 0.55 : ROAD_L - SHOULDER_W * 0.55;
+    const cluster = [];
+    for (let j = 0; j < 2; j++) {
+      cluster.push({ dx: rng(-10, 10), dy: rng(-6, 6), w: rng(14, 20), h: rng(12, 16) });
+    }
+    rocks.push({ x, y: i * (CYCLE / 3) + rng(0, 60), cluster, side, cycle: CYCLE });
+  }
+  // Road signs — 3 total
+  for (let i = 0; i < 3; i++) {
+    const side = i % 2 === 0 ? 1 : -1;
+    const x = side > 0 ? ROAD_R + 6 : ROAD_L - 28;
+    roadSigns.push({ x, y: i * (CYCLE / 3) + 150, side, text: i % 2 === 0 ? 'HWY' : '65', cycle: CYCLE });
+  }
+  // Utility poles — 3 total, right side only
+  for (let i = 0; i < 3; i++) {
+    utilityPoles.push({ x: ROAD_R + SHOULDER_W * 0.75, y: i * (CYCLE / 3) + 100, side: 1, cycle: CYCLE });
+  }
+  // Dead shrubs — 4 total
+  for (let i = 0; i < 4; i++) {
+    const side = i % 2 === 0 ? 1 : -1;
+    const x = side > 0 ? ROAD_R + rng(SHOULDER_W * 0.3, SHOULDER_W * 0.6) : ROAD_L - rng(SHOULDER_W * 0.3, SHOULDER_W * 0.6);
+    deadShrubs.push({ x, y: i * (CYCLE / 4) + rng(0, 50), size: rng(6, 9), cycle: CYCLE });
+  }
+  // No tumbleweeds
+  tumbleweeds = [];
+  // Sand drifts — 3 total
+  for (let i = 0; i < 3; i++) {
+    const side = i % 2 === 0 ? 1 : -1;
+    sandDrifts.push({ x: side > 0 ? ROAD_R - rng(0, 6) : ROAD_L + rng(0, 6), y: i * (CYCLE / 3) + 200, w: rng(22, 35), h: rng(5, 8), cycle: CYCLE });
+  }
+  // Road cracks — 5 total
+  for (let i = 0; i < 5; i++) {
+    desertCracks.push({ x: ROAD_L + rng(10, ROAD_W - 10), y: i * (CYCLE / 5), len: rng(10, 18), angle: rng(-0.2, 0.2), cycle: CYCLE });
+  }
+}
+
+function initForestObjects() {
+  trees = []; streetLamps = []; fallenLogs = []; undergrowth = [];
+  roadMarkers = []; fallenLeaves = []; treeShadows = []; dappleSpots = [];
+  for (let y = -100; y < H + 200; y += rng(30, 55)) {
+    for (let side = -1; side <= 1; side += 2) {
+      const baseX = side > 0 ? ROAD_R + rng(15, SHOULDER_W + 40) : ROAD_L - rng(15, SHOULDER_W + 40);
+      trees.push({ x: baseX, y, layer: 0, canopyR: rng(18, 30), trunkH: rng(10, 18), side });
+      if (Math.random() < 0.6) {
+        const x2 = side > 0 ? ROAD_R + rng(5, SHOULDER_W) : ROAD_L - rng(5, SHOULDER_W);
+        trees.push({ x: x2, y: y + rng(-10, 10), layer: 1, canopyR: rng(24, 40), trunkH: rng(12, 22), side });
+      }
+    }
+  }
+  for (let y = -100; y < H + 200; y += rng(250, 320)) {
+    const side = y % 560 < 280 ? 1 : -1;
+    const x = side > 0 ? ROAD_R - 4 : ROAD_L + 4;
+    streetLamps.push({ x, y, side });
+  }
+  for (let y = -100; y < H + 200; y += rng(120, 220)) {
+    const side = Math.random() < 0.5 ? 1 : -1;
+    const x = side > 0 ? ROAD_R + rng(8, SHOULDER_W - 5) : ROAD_L - rng(8, SHOULDER_W - 5);
+    fallenLogs.push({ x, y, w: rng(25, 50), side });
+  }
+  for (let y = -100; y < H + 200; y += rng(18, 35)) {
+    for (let side = -1; side <= 1; side += 2) {
+      const x = side > 0 ? ROAD_R + rng(4, SHOULDER_W - 4) : ROAD_L - rng(4, SHOULDER_W - 4);
+      undergrowth.push({ x, y, w: rng(8, 20), h: rng(5, 12) });
+    }
+  }
+  for (let y = -100; y < H + 200; y += rng(80, 160)) {
+    const side = Math.random() < 0.5 ? 1 : -1;
+    const x = side > 0 ? ROAD_R + 2 : ROAD_L - 6;
+    roadMarkers.push({ x, y, side });
+  }
+  for (let i = 0; i < 35; i++) {
+    fallenLeaves.push({ x: ROAD_L + rng(0, ROAD_W), y: rng(-50, H + 50), rot: rng(0, Math.PI * 2), color: pick(['#aa8822', '#886611', '#cc9933', '#997722']), size: rng(3, 6) });
+  }
+  for (let i = 0; i < 12; i++) {
+    treeShadows.push({ y: rng(-50, H + 50), w: rng(40, ROAD_W * 0.6), angle: rng(-0.3, 0.3) });
+  }
+  for (let i = 0; i < 20; i++) {
+    dappleSpots.push({ x: ROAD_L + rng(0, ROAD_W), y: rng(-50, H + 50), r: rng(4, 12) });
+  }
+}
+
+initDesertObjects();
+initForestObjects();
+
+// ═══════════ PLAYER ═══════════
+const player = {
+  x: 0, y: 0, targetX: 0, lane: 1,
+  w: 32, h: 52, moving: false
+};
+
+function resetPlayer() {
+  player.lane = 1;
+  player.x = ROAD_L + LANE_W * player.lane + LANE_W / 2;
+  player.targetX = player.x;
+  player.y = H - 120;
+}
+
+// ═══════════ ENEMIES ═══════════
+let enemies = [];
+const ENEMY_TYPES = [
+  { name: 'sedan', w: 28, h: 46 },
+  { name: 'minivan', w: 34, h: 58 },
+  { name: 'motorcycle', w: 14, h: 30 },
+  { name: 'police', w: 28, h: 48 },
+  { name: 'truck', w: 32, h: 64 },
+  { name: 'taxi', w: 28, h: 46 },
+  { name: 'suv', w: 30, h: 52 }
+];
+
+let spawnCooldown = 0;
+const ENEMY_SPEED_RATIO = 0.35;
+
+function spawnEnemy() {
+  if (spawnCooldown > 0) return;
+
+  // Find lanes that have NO enemy on screen at all
+  const occupiedLanes = new Set();
+  for (const e of enemies) {
+    if (e.y < H + 60) occupiedLanes.add(e.targetLane);
+  }
+
+  // Available = lanes with zero cars
+  const freeLanes = [0, 1, 2].filter(l => !occupiedLanes.has(l));
+  if (freeLanes.length === 0) return;
+
+  // Spawn 1 car in a free lane (never blocks all 3)
+  const lane = pick(freeLanes);
+  const typeIdx = pick(enemyTypePool);
+  const type = ENEMY_TYPES[typeIdx];
+
+  enemies.push({
+    type: typeIdx,
+    x: ROAD_L + LANE_W * lane + LANE_W / 2,
+    y: -type.h - 10,
+    w: type.w, h: type.h,
+    lane, targetLane: lane,
+    speed: speed * ENEMY_SPEED_RATIO,
+    passed: false
+  });
+
+  spawnCooldown = Math.max(0.4, 1.0 - gameTime * 0.004);
+}
+
+
+// ═══════════ AUDIO SYSTEM ═══════════
+let audioCtx = null, audioStarted = false;
+let engineOsc, engineGain;
+let ambientDesertOsc, ambientDesertGain;
+let ambientForestOsc, ambientForestGain, ambientForestOsc2, ambientForestGain2;
+
+function initAudio() {
+  if (audioStarted) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  audioStarted = true;
+
+  engineOsc = audioCtx.createOscillator();
+  engineGain = audioCtx.createGain();
+  engineOsc.type = 'sawtooth';
+  engineOsc.frequency.value = 80;
+  engineGain.gain.value = 0.04;
+  engineOsc.connect(engineGain).connect(audioCtx.destination);
+  engineOsc.start();
+
+  ambientDesertOsc = audioCtx.createOscillator();
+  ambientDesertGain = audioCtx.createGain();
+  ambientDesertOsc.type = 'sawtooth';
+  ambientDesertOsc.frequency.value = 3200;
+  ambientDesertGain.gain.value = 0.012;
+  const desFilter = audioCtx.createBiquadFilter();
+  desFilter.type = 'highpass';
+  desFilter.frequency.value = 2800;
+  ambientDesertOsc.connect(desFilter).connect(ambientDesertGain).connect(audioCtx.destination);
+  ambientDesertOsc.start();
+
+  ambientForestOsc = audioCtx.createOscillator();
+  ambientForestGain = audioCtx.createGain();
+  ambientForestOsc.type = 'triangle';
+  ambientForestOsc.frequency.value = 120;
+  ambientForestGain.gain.value = 0;
+  const forFilter = audioCtx.createBiquadFilter();
+  forFilter.type = 'lowpass';
+  forFilter.frequency.value = 400;
+  ambientForestOsc.connect(forFilter).connect(ambientForestGain).connect(audioCtx.destination);
+  ambientForestOsc.start();
+
+  ambientForestOsc2 = audioCtx.createOscillator();
+  ambientForestGain2 = audioCtx.createGain();
+  ambientForestOsc2.type = 'sawtooth';
+  ambientForestOsc2.frequency.value = 80;
+  ambientForestGain2.gain.value = 0;
+  const forFilter2 = audioCtx.createBiquadFilter();
+  forFilter2.type = 'lowpass';
+  forFilter2.frequency.value = 200;
+  ambientForestOsc2.connect(forFilter2).connect(ambientForestGain2).connect(audioCtx.destination);
+  ambientForestOsc2.start();
+}
+
+function playSound(type) {
+  if (!audioCtx) return;
+  const now = audioCtx.currentTime;
+  if (type === 'collision') {
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    const d = audioCtx.createBiquadFilter();
+    d.type = 'lowpass'; d.frequency.value = 800;
+    o.type = 'sawtooth'; o.frequency.value = 150;
+    g.gain.setValueAtTime(0.2, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+    o.connect(d).connect(g).connect(audioCtx.destination);
+    o.start(now); o.stop(now + 0.35);
+  } else if (type === 'nearmiss') {
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = 'sine'; o.frequency.setValueAtTime(1200, now);
+    o.frequency.exponentialRampToValueAtTime(1800, now + 0.08);
+    g.gain.setValueAtTime(0.1, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+    o.connect(g).connect(audioCtx.destination);
+    o.start(now); o.stop(now + 0.12);
+  } else if (type === 'nitro') {
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = 'sawtooth'; o.frequency.setValueAtTime(200, now);
+    o.frequency.exponentialRampToValueAtTime(1200, now + 0.5);
+    g.gain.setValueAtTime(0.08, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+    o.connect(g).connect(audioCtx.destination);
+    o.start(now); o.stop(now + 0.6);
+  } else if (type === 'whoosh') {
+    const bufLen = audioCtx.sampleRate * 0.4;
+    const buf = audioCtx.createBuffer(1, bufLen, audioCtx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < bufLen; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / bufLen);
+    const src = audioCtx.createBufferSource();
+    src.buffer = buf;
+    const f = audioCtx.createBiquadFilter();
+    f.type = 'bandpass'; f.frequency.value = 1000; f.Q.value = 2;
+    const g = audioCtx.createGain();
+    g.gain.setValueAtTime(0.12, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+    src.connect(f).connect(g).connect(audioCtx.destination);
+    src.start(now); src.stop(now + 0.4);
+  }
+}
+
+function updateAudio(dt) {
+  if (!audioCtx) return;
+  const desertVol = transitioning ? lerp(currentBiome === BIOME.DESERT ? 0.012 : 0, currentBiome === BIOME.DESERT ? 0 : 0.012, transitionProgress) : (currentBiome === BIOME.DESERT ? 0.012 : 0);
+  const forestVol = transitioning ? lerp(currentBiome === BIOME.FOREST ? 0.012 : 0, currentBiome === BIOME.FOREST ? 0 : 0.012, transitionProgress) : (currentBiome === BIOME.FOREST ? 0.012 : 0);
+  ambientDesertGain.gain.value = desertVol;
+  ambientForestGain.gain.value = forestVol;
+  ambientForestGain2.gain.value = forestVol * 0.6;
+  const ef = 60 + speed * 18 + (nitroActive ? 40 : 0);
+  engineOsc.frequency.value = ef;
+  engineGain.gain.value = gameState === STATE.PLAYING ? 0.035 : 0.01;
+}
+
+// ═══════════ INPUT ═══════════
+const keys = {};
+window.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (e.code === 'Enter') {
+    if (gameState === STATE.MENU) startGame();
+    else if (gameState === STATE.GAMEOVER) startGame();
+  }
+  if (e.code === 'KeyP' && gameState === STATE.PLAYING) { gameState = STATE.PAUSED; }
+  else if (e.code === 'KeyP' && gameState === STATE.PAUSED) { gameState = STATE.PLAYING; }
+  e.preventDefault();
+});
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+
+let touchBtnLeft = false, touchBtnRight = false;
+const BTN_SIZE = 64, BTN_PAD = 20;
+let lastTapTime = 0;
+
+function getTouchBtnRects() {
+  const y = H - BTN_SIZE - BTN_PAD;
+  return {
+    left: { x: BTN_PAD, y, w: BTN_SIZE, h: BTN_SIZE },
+    right: { x: W - BTN_SIZE - BTN_PAD, y, w: BTN_SIZE, h: BTN_SIZE },
+  };
+}
+
+function hitTest(tx, ty, r) { return tx >= r.x && tx <= r.x + r.w && ty >= r.y && ty <= r.y + r.h; }
+
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  initAudio();
+  if (gameState === STATE.MENU || gameState === STATE.GAMEOVER) { startGame(); return; }
+  if (gameState !== STATE.PLAYING) return;
+  const now = Date.now();
+  const btns = getTouchBtnRects();
+  let hitBtn = false;
+  for (const t of e.changedTouches) {
+    const tx = t.clientX, ty = t.clientY;
+    if (hitTest(tx, ty, btns.left)) { moveLeft(); touchBtnLeft = true; hitBtn = true; }
+    else if (hitTest(tx, ty, btns.right)) { moveRight(); touchBtnRight = true; hitBtn = true; }
+  }
+  if (!hitBtn) {
+    if (now - lastTapTime < 300) { activateNitro(); lastTapTime = 0; }
+    else { lastTapTime = now; }
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchend', e => {
+  touchBtnLeft = false; touchBtnRight = false;
+}, { passive: false });
+
+canvas.addEventListener('click', (ev) => {
+  initAudio();
+  if (showFaq) { showFaq = false; return; }
+  if (gameState === STATE.MENU) {
+    const cx = ev.clientX, cy = ev.clientY;
+    if (cx >= faqBtnRect.x && cx <= faqBtnRect.x + faqBtnRect.w && cy >= faqBtnRect.y && cy <= faqBtnRect.y + faqBtnRect.h) {
+      showFaq = true;
+    }
+  }
+});
+
+function moveLeft() {
+  if (player.lane > 0) {
+    player.lane--;
+    player.targetX = ROAD_L + LANE_W * player.lane + LANE_W / 2;
+  }
+}
+function moveRight() {
+  if (player.lane < NUM_LANES - 1) {
+    player.lane++;
+    player.targetX = ROAD_L + LANE_W * player.lane + LANE_W / 2;
+  }
+}
+function activateNitro() {
+  if (!nitroActive && nitroCooldown <= 0) {
+    nitroActive = true;
+    nitroTimer = 2.5;
+    nitroCooldown = 6;
+    multiplier = 1.5;
+    playSound('nitro');
+  }
+}
+
+// ═══════════ GAME FLOW ═══════════
+function startGame() {
+  initAudio();
+  gameState = STATE.PLAYING;
+  score = 0; distance = 0; lives = 3;
+  speed = baseSpeed; scrollOffset = 0; gameTime = 0;
+  nitroActive = false; nitroCooldown = 0; nitroTimer = 0;
+  invincible = false; invTimer = 0; flashCount = 0;
+  shakeTimer = 0; redVignette = 0; nearMissFlash = 0;
+  multiplier = 1; biomeTransitions = 0;
+  difficultyTimer = 0; spawnRate = 0.018; speedCap = 1.3;
+  enemyTypePool = [0, 1, 2, 3, 4, 5, 6];
+  currentBiome = BIOME.DESERT; nextBiome = BIOME.FOREST;
+  transitioning = false; transitionProgress = 0; biomeTimer = 0;
+  biomeWarningShown = false; biomeWarningSign = { show: false, y: 0, alpha: 0 };
+  enemies = [];
+  resetPlayer();
+  initDesertObjects();
+  initForestObjects();
+  biomeBadge = { show: true, alpha: 0, y: -40, timer: 3, name: 'DESERT HIGHWAY', color: '#cc8833' };
+}
+
+function hitPlayer() {
+  if (invincible) return;
+  lives--;
+  playSound('collision');
+  shakeTimer = 0.4;
+  redVignette = 1;
+  invincible = true;
+  invTimer = 1.5;
+  flashCount = 0;
+  if (lives <= 0) {
+    gameState = STATE.GAMEOVER;
+    if (score > bestScore) { bestScore = score; localStorage.setItem('roadEscapeBest', bestScore); }
+  }
+}
+
+// ═══════════ UPDATE ═══════════
+function update(dt) {
+  if (gameState === STATE.MENU) {
+    menuScroll += 1.5 * dt * 60;
+    return;
+  }
+  if (gameState !== STATE.PLAYING) return;
+
+  gameTime += dt;
+  totalTime += dt;
+
+  // Speed
+  const spdMult = nitroActive ? 1.8 : 1;
+  speed = baseSpeed * spdMult * Math.min(speedCap, 1 + gameTime * 0.003);
+  scrollOffset += speed * dt * 60;
+  distance += speed * dt * 0.6;
+  score += Math.floor(speed * dt * 6 * multiplier);
+
+  // Difficulty
+  difficultyTimer += dt;
+  if (difficultyTimer > 20) {
+    difficultyTimer -= 20;
+    spawnRate = Math.min(0.06, spawnRate * 1.1);
+    speedCap += 0.05;
+  }
+
+  // Nitro
+  if (nitroActive) {
+    nitroTimer -= dt;
+    if (nitroTimer <= 0) { nitroActive = false; multiplier = 1; }
+  }
+  if (nitroCooldown > 0) nitroCooldown -= dt;
+
+  // Player movement
+  if (keys['ArrowLeft'] || keys['KeyA']) moveLeft();
+  if (keys['ArrowRight'] || keys['KeyD']) moveRight();
+  if (keys['Space']) activateNitro();
+  keys['ArrowLeft'] = false; keys['ArrowRight'] = false;
+  keys['KeyA'] = false; keys['KeyD'] = false;
+  keys['Space'] = false;
+
+  const dx = player.targetX - player.x;
+  if (Math.abs(dx) > 0.5) player.x += dx * Math.min(1, dt * 8);
+  else player.x = player.targetX;
+
+  // Invincibility
+  if (invincible) {
+    invTimer -= dt;
+    flashCount += dt * 16;
+    if (invTimer <= 0) { invincible = false; flashCount = 0; }
+  }
+  if (shakeTimer > 0) {
+    shakeTimer -= dt;
+    shakeX = (Math.random() - 0.5) * 8;
+    shakeY = (Math.random() - 0.5) * 8;
+  } else { shakeX = 0; shakeY = 0; }
+  if (redVignette > 0) redVignette -= dt * 2;
+  if (nearMissFlash > 0) nearMissFlash -= dt * 2;
+
+  // Enemies
+  spawnCooldown -= dt;
+  spawnEnemy();
+
+  for (let i = enemies.length - 1; i >= 0; i--) {
+    const e = enemies[i];
+
+    e.y += (speed - e.speed) * dt * 60;
+
+    // Stay centered in lane
+    const targetX = ROAD_L + LANE_W * e.targetLane + LANE_W / 2;
+    e.x = targetX;
+
+    if (e.y > H + 60) { enemies.splice(i, 1); continue; }
+
+    // Collision
+    if (!invincible && !e.passed) {
+      const pw = player.w * 0.4, ph = player.h * 0.4;
+      const ew = e.w * 0.4, eh = e.h * 0.4;
+      if (Math.abs(player.x - e.x) < pw + ew && Math.abs(player.y - e.y) < ph + eh) {
+        hitPlayer();
+      }
+    }
+
+    // Near miss
+    if (!e.passed && e.y > player.y + player.h / 2) {
+      e.passed = true;
+      const dist = Math.abs(player.x - e.x);
+      if (dist < player.w * 0.5 + e.w * 0.5 + 12 && dist > player.w * 0.3 + e.w * 0.3) {
+        score += Math.floor(50 * multiplier);
+        nearMissFlash = 1;
+        nearMissText = '+50 NEAR MISS!';
+        playSound('nearmiss');
+      }
+    }
+  }
+
+  // Biome warning sign — 10s before transition
+  if (!transitioning && !biomeWarningShown && biomeTimer >= BIOME_DURATION - BIOME_WARNING_TIME) {
+    biomeWarningShown = true;
+    biomeWarningSign = { show: true, y: -60, alpha: 1 };
+  }
+  if (biomeWarningSign.show) {
+    biomeWarningSign.y += speed * dt * 60;
+    if (biomeWarningSign.y > H + 80) biomeWarningSign.show = false;
+  }
+
+  // Biome
+  biomeTimer += dt;
+  if (!transitioning && biomeTimer >= BIOME_DURATION) {
+    transitioning = true;
+    transitionProgress = 0;
+    biomeWarningShown = false;
+    nextBiome = currentBiome === BIOME.DESERT ? BIOME.FOREST : BIOME.DESERT;
+    playSound('whoosh');
+  }
+  if (transitioning) {
+    transitionProgress += dt / TRANSITION_DURATION;
+    if (transitionProgress >= 1) {
+      transitionProgress = 1;
+      transitioning = false;
+      currentBiome = nextBiome;
+      biomeTimer = 0;
+      biomeTransitions++;
+      score += 200;
+      baseSpeed += 0.6;
+      const isDesert = currentBiome === BIOME.DESERT;
+      biomeBadge = {
+        show: true, alpha: 0, y: -40, timer: 3,
+        name: isDesert ? 'DESERT HIGHWAY' : 'FOREST ROAD',
+        color: isDesert ? '#cc8833' : '#336622'
+      };
+    }
+  }
+
+  // Badge animation
+  if (biomeBadge.show) {
+    biomeBadge.timer -= dt;
+    if (biomeBadge.timer > 1) {
+      biomeBadge.alpha = Math.min(1, biomeBadge.alpha + dt * 3);
+      biomeBadge.y = lerp(biomeBadge.y, 12, dt * 6);
+    } else if (biomeBadge.timer > 0) {
+      biomeBadge.alpha = Math.max(0, biomeBadge.alpha - dt * 2);
+      biomeBadge.y -= dt * 30;
+    } else {
+      biomeBadge.show = false;
+    }
+  }
+
+  // Tumbleweeds
+  for (const tw of tumbleweeds) {
+    tw.x += tw.vx * dt * 60;
+    tw.y += speed * dt * 60 * 0.5;
+    if (tw.y > H + 20) { tw.y = -20; tw.x = rng(ROAD_L - SHOULDER_W, ROAD_R + SHOULDER_W); }
+    if (tw.x > ROAD_R + SHOULDER_W + 20 || tw.x < ROAD_L - SHOULDER_W - 20) {
+      tw.x = Math.random() < 0.5 ? ROAD_L - SHOULDER_W : ROAD_R + SHOULDER_W;
+      tw.vx = -tw.vx;
+    }
+  }
+}
+
+// ═══════════ DRAWING HELPERS ═══════════
+function drawRoundRect(c, x, y, w, h, r) {
+  c.beginPath();
+  c.moveTo(x + r, y);
+  c.lineTo(x + w - r, y);
+  c.quadraticCurveTo(x + w, y, x + w, y + r);
+  c.lineTo(x + w, y + h - r);
+  c.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  c.lineTo(x + r, y + h);
+  c.quadraticCurveTo(x, y + h, x, y + h - r);
+  c.lineTo(x, y + r);
+  c.quadraticCurveTo(x, y, x + r, y);
+  c.closePath();
+}
+
+// ═══════════ DRAW DESERT BIOME ═══════════
+function drawDesert(c, scroll, alpha) {
+  if (alpha <= 0) return;
+  c.save();
+  c.globalAlpha = alpha;
+
+  // Sky / ground
+  c.fillStyle = '#c8a060';
+  c.fillRect(0, 0, W, H);
+
+  // Shoulder texture
+  const shoulderL = ROAD_L - SHOULDER_W;
+  const shoulderR = ROAD_R;
+  for (let side = 0; side < 2; side++) {
+    const sx = side === 0 ? shoulderL : shoulderR;
+    const sw = side === 0 ? SHOULDER_W : SHOULDER_W;
+    c.fillStyle = '#c8a060';
+    c.fillRect(sx, 0, sw, H);
+  }
+
+  // Road surface — clean asphalt
+  c.fillStyle = '#4d4d40';
+  c.fillRect(ROAD_L, 0, ROAD_W, H);
+
+  // Sand blown onto road edges
+  for (const sd of sandDrifts) {
+    const cyc = sd.cycle || 3000;
+    const sy = ((sd.y + scroll) % cyc) - 100;
+    if (sy < -30 || sy > H + 30) continue;
+    c.fillStyle = 'rgba(200,160,96,0.25)';
+    c.beginPath();
+    c.ellipse(sd.x, sy, sd.w, sd.h, 0, 0, Math.PI * 2);
+    c.fill();
+    c.fillStyle = 'rgba(200,160,96,0.12)';
+    c.beginPath();
+    c.ellipse(sd.x + (sd.x > (ROAD_L + ROAD_R) / 2 ? -8 : 8), sy, sd.w * 0.6, sd.h * 0.7, 0, 0, Math.PI * 2);
+    c.fill();
+  }
+
+  // Edge lines — solid white
+  c.strokeStyle = '#ffffff';
+  c.lineWidth = 2;
+  c.beginPath(); c.moveTo(ROAD_L, 0); c.lineTo(ROAD_L, H); c.stroke();
+  c.beginPath(); c.moveTo(ROAD_R, 0); c.lineTo(ROAD_R, H); c.stroke();
+
+  // Lane dividers — dashed white
+  c.strokeStyle = 'rgba(255,255,255,0.4)';
+  c.lineWidth = 1.5;
+  c.setLineDash([18, 14]);
+  c.lineDashOffset = -scroll;
+  for (let i = 1; i < NUM_LANES; i++) {
+    const lx = ROAD_L + LANE_W * i;
+    c.beginPath(); c.moveTo(lx, 0); c.lineTo(lx, H); c.stroke();
+  }
+  c.setLineDash([]);
+
+  // Cacti
+  for (const ca of cacti) {
+    const cyc = ca.cycle || 3000;
+    const cy = ((ca.y + scroll) % cyc) - 100;
+    if (cy < -60 || cy > H + 60) continue;
+    const tw = 6, armW = 5;
+    c.fillStyle = '#3a6b2a';
+    c.fillRect(ca.x - tw / 2, cy - ca.h, tw, ca.h);
+    if (ca.h > 15) {
+      c.fillRect(ca.x - tw / 2 - armW, cy - ca.h * 0.65, armW, ca.h * 0.2);
+      c.fillRect(ca.x - tw / 2 - armW, cy - ca.h * 0.65 - armW * 1.5, armW, armW * 1.5);
+    }
+    if (ca.h > 22) {
+      c.fillRect(ca.x + tw / 2, cy - ca.h * 0.45, armW, ca.h * 0.2);
+      c.fillRect(ca.x + tw / 2, cy - ca.h * 0.45 - armW * 1.2, armW, armW * 1.2);
+    }
+    c.fillStyle = '#2d5521';
+    c.fillRect(ca.x - 1, cy - ca.h, 2, ca.h);
+  }
+
+  // Utility poles
+  for (const pole of utilityPoles) {
+    const cyc = pole.cycle || 3000;
+    const py = ((pole.y + scroll) % cyc) - 100;
+    if (py < -60 || py > H + 60) continue;
+    const px = pole.x;
+    c.strokeStyle = '#777766';
+    c.lineWidth = 2;
+    c.beginPath(); c.moveTo(px, py); c.lineTo(px, py - 50); c.stroke();
+    c.beginPath(); c.moveTo(px - 10, py - 48); c.lineTo(px + 10, py - 48); c.stroke();
+  }
+
+  // Road signs
+  for (const rs of roadSigns) {
+    const cyc = rs.cycle || 3000;
+    const ry = ((rs.y + scroll) % cyc) - 100;
+    if (ry < -60 || ry > H + 60) continue;
+    c.fillStyle = '#888888';
+    c.fillRect(rs.x + 10, ry - 30, 3, 30);
+    c.fillStyle = '#22aa22';
+    c.fillRect(rs.x, ry - 48, 24, 18);
+    c.strokeStyle = '#ffffff';
+    c.lineWidth = 1;
+    c.strokeRect(rs.x + 1, ry - 47, 22, 16);
+    c.fillStyle = '#ffffff';
+    c.font = '7px monospace';
+    c.textAlign = 'center';
+    c.fillText(rs.text, rs.x + 12, ry - 36);
+  }
+
+
+  c.restore();
+}
+
+// ═══════════ DRAW FOREST BIOME ═══════════
+function drawForest(c, scroll, alpha) {
+  if (alpha <= 0) return;
+  c.save();
+  c.globalAlpha = alpha;
+
+  // Dark forest floor
+  c.fillStyle = '#152010';
+  c.fillRect(0, 0, W, H);
+
+  // Road surface
+  const stripH = 8;
+  const colors = ['#2e3028', '#333830'];
+  const roadOff = scroll % (stripH * 2);
+  for (let y = -stripH * 2 + roadOff; y < H + stripH; y += stripH) {
+    const idx = Math.floor((y - roadOff) / stripH) & 1;
+    c.fillStyle = colors[idx];
+    c.fillRect(ROAD_L, y, ROAD_W, stripH);
+  }
+
+  // Tree shadows on road
+  for (const ts of treeShadows) {
+    const ty = ((ts.y + scroll * 0.9) % (H + 100)) - 50;
+    c.save();
+    c.translate(ROAD_L + ROAD_W / 2, ty);
+    c.rotate(ts.angle);
+    c.fillStyle = 'rgba(0,0,0,0.09)';
+    c.fillRect(-ts.w / 2, -4, ts.w, 8);
+    c.restore();
+  }
+
+  // Dapple light spots
+  for (const dp of dappleSpots) {
+    const dy = ((dp.y + scroll * 0.85) % (H + 100)) - 50;
+    c.fillStyle = 'rgba(255,238,170,0.03)';
+    c.beginPath();
+    c.arc(dp.x, dy, dp.r, 0, Math.PI * 2);
+    c.fill();
+  }
+
+  // Fallen leaves
+  for (const lf of fallenLeaves) {
+    const ly = ((lf.y + scroll) % (H + 100)) - 50;
+    c.save();
+    c.translate(lf.x, ly);
+    c.rotate(lf.rot);
+    c.fillStyle = lf.color;
+    c.beginPath();
+    c.ellipse(0, 0, lf.size, lf.size * 0.5, 0, 0, Math.PI * 2);
+    c.fill();
+    c.restore();
+  }
+
+  // Edge lines
+  c.strokeStyle = '#ffffff';
+  c.lineWidth = 2;
+  c.beginPath(); c.moveTo(ROAD_L, 0); c.lineTo(ROAD_L, H); c.stroke();
+  c.beginPath(); c.moveTo(ROAD_R, 0); c.lineTo(ROAD_R, H); c.stroke();
+
+  // Center divider
+  c.strokeStyle = '#ccbb44';
+  c.lineWidth = 2.5;
+  c.setLineDash([20, 10]);
+  c.lineDashOffset = -scroll;
+  const cx = (ROAD_L + ROAD_R) / 2;
+  c.beginPath(); c.moveTo(cx, 0); c.lineTo(cx, H); c.stroke();
+
+  // Lane separators
+  c.strokeStyle = 'rgba(255,255,255,0.4)';
+  c.lineWidth = 1.5;
+  c.setLineDash([12, 10]);
+  for (let i = 1; i < NUM_LANES; i++) {
+    const lx = ROAD_L + LANE_W * i;
+    if (Math.abs(lx - cx) < 3) continue;
+    c.beginPath(); c.moveTo(lx, 0); c.lineTo(lx, H); c.stroke();
+  }
+  c.setLineDash([]);
+
+  // Undergrowth
+  for (const ug of undergrowth) {
+    const uy = ((ug.y + scroll) % (H + 200)) - 100;
+    c.fillStyle = '#0d1f08';
+    c.beginPath();
+    c.ellipse(ug.x, uy, ug.w, ug.h, 0, 0, Math.PI * 2);
+    c.fill();
+  }
+
+  // Trees — back layer
+  for (const tr of trees) {
+    if (tr.layer !== 0) continue;
+    const ty = ((tr.y + scroll) % (H + 300)) - 100;
+    c.fillStyle = '#3a2a1a';
+    c.fillRect(tr.x - 3, ty - tr.trunkH, 6, tr.trunkH);
+    c.fillStyle = '#0d1a08';
+    c.beginPath();
+    c.ellipse(tr.x, ty - tr.trunkH - tr.canopyR * 0.5, tr.canopyR, tr.canopyR * 0.8, 0, 0, Math.PI * 2);
+    c.fill();
+  }
+
+  // Trees — front layer
+  for (const tr of trees) {
+    if (tr.layer !== 1) continue;
+    const ty = ((tr.y + scroll) % (H + 300)) - 100;
+    c.fillStyle = '#4a3a2a';
+    c.fillRect(tr.x - 4, ty - tr.trunkH, 8, tr.trunkH);
+    c.fillStyle = '#152810';
+    c.beginPath();
+    c.ellipse(tr.x, ty - tr.trunkH - tr.canopyR * 0.4, tr.canopyR, tr.canopyR * 0.75, 0, 0, Math.PI * 2);
+    c.fill();
+  }
+
+  // Fallen logs
+  for (const fl of fallenLogs) {
+    const fy = ((fl.y + scroll) % (H + 320)) - 100;
+    c.fillStyle = '#4a3a1a';
+    c.fillRect(fl.x - fl.w / 2, fy - 4, fl.w, 8);
+    c.strokeStyle = '#3a2a10';
+    c.lineWidth = 0.5;
+    for (let i = 0; i < fl.w; i += 6) {
+      c.beginPath();
+      c.moveTo(fl.x - fl.w / 2 + i, fy - 4);
+      c.lineTo(fl.x - fl.w / 2 + i, fy + 4);
+      c.stroke();
+    }
+  }
+
+  // Street lamps
+  for (const sl of streetLamps) {
+    const sy = ((sl.y + scroll) % (H + 420)) - 100;
+    c.strokeStyle = '#667755';
+    c.lineWidth = 3;
+    c.beginPath(); c.moveTo(sl.x, sy); c.lineTo(sl.x, sy - 40); c.stroke();
+    const armDir = sl.side;
+    c.lineWidth = 2;
+    c.beginPath();
+    c.moveTo(sl.x, sy - 38);
+    c.lineTo(sl.x + armDir * 15, sy - 40);
+    c.stroke();
+    c.fillStyle = '#ffeeaa';
+    c.beginPath();
+    c.arc(sl.x + armDir * 15, sy - 40, 3, 0, Math.PI * 2);
+    c.fill();
+    // Light cone
+    c.fillStyle = 'rgba(255,238,170,0.07)';
+    c.beginPath();
+    c.moveTo(sl.x + armDir * 12, sy - 36);
+    c.lineTo(sl.x + armDir * 30, sy + 20);
+    c.lineTo(sl.x - armDir * 5, sy + 20);
+    c.closePath();
+    c.fill();
+  }
+
+  // Road markers
+  for (const rm of roadMarkers) {
+    const ry = ((rm.y + scroll) % (H + 260)) - 100;
+    c.fillStyle = '#cc4444';
+    c.fillRect(rm.x, ry - 8, 4, 12);
+  }
+
+  // Ambient overlay
+  c.fillStyle = 'rgba(0,0,26,0.13)';
+  c.fillRect(0, 0, W, H);
+
+  c.restore();
+}
+
+// ═══════════ DRAW PLAYER CAR ═══════════
+function drawPlayerCar(c, px, py) {
+  if (invincible && Math.floor(flashCount) % 2 === 0) return;
+  const w = player.w, h = player.h;
+  const x = px - w / 2, y = py - h / 2;
+
+  // Shadow
+  c.fillStyle = 'rgba(0,0,0,0.27)';
+  c.beginPath();
+  c.ellipse(px + 3, py + 6, w * 0.6, h * 0.45, 0, 0, Math.PI * 2);
+  c.fill();
+
+  // Body
+  c.fillStyle = '#1a5522';
+  drawRoundRect(c, x, y, w, h, 5);
+  c.fill();
+
+  // Hood (top 35%)
+  c.fillStyle = '#1f6628';
+  drawRoundRect(c, x + 2, y, w - 4, h * 0.35, 4);
+  c.fill();
+
+  // Side skirts
+  c.fillStyle = '#133d19';
+  c.fillRect(x, y + h * 0.2, 3, h * 0.6);
+  c.fillRect(x + w - 3, y + h * 0.2, 3, h * 0.6);
+
+  // Windshield
+  c.fillStyle = 'rgba(85,136,170,0.7)';
+  c.beginPath();
+  c.moveTo(x + 5, y + h * 0.3);
+  c.lineTo(x + w - 5, y + h * 0.3);
+  c.lineTo(x + w - 7, y + h * 0.45);
+  c.lineTo(x + 7, y + h * 0.45);
+  c.closePath();
+  c.fill();
+
+  // Sunroof
+  c.fillStyle = '#0d2a10';
+  c.fillRect(x + 8, y + h * 0.46, w - 16, h * 0.12);
+  c.fillStyle = 'rgba(136,170,187,0.5)';
+  c.fillRect(x + 10, y + h * 0.47, w - 20, h * 0.1);
+
+  // Rear window
+  c.fillStyle = 'rgba(68,119,102,0.6)';
+  c.beginPath();
+  c.moveTo(x + 7, y + h * 0.62);
+  c.lineTo(x + w - 7, y + h * 0.62);
+  c.lineTo(x + w - 5, y + h * 0.73);
+  c.lineTo(x + 5, y + h * 0.73);
+  c.closePath();
+  c.fill();
+
+  // Spoiler
+  c.fillStyle = '#0a1f0a';
+  c.fillRect(x + 3, y + h - 5, 4, 4);
+  c.fillRect(x + w - 7, y + h - 5, 4, 4);
+  c.fillRect(x + 2, y + h - 6, w - 4, 2);
+
+  // Side mirrors
+  c.fillStyle = '#0f3318';
+  c.fillRect(x - 3, y + h * 0.28, 4, 3);
+  c.fillRect(x + w - 1, y + h * 0.28, 4, 3);
+
+  // Wheels
+  const wheelPositions = [
+    [x + 1, y + 5], [x + w - 8, y + 5],
+    [x + 1, y + h - 10], [x + w - 8, y + h - 10]
+  ];
+  for (const [wx, wy] of wheelPositions) {
+    c.fillStyle = '#111111';
+    c.beginPath();
+    c.ellipse(wx + 3.5, wy + 2.5, 3.5, 2.5, 0, 0, Math.PI * 2);
+    c.fill();
+    c.fillStyle = '#888888';
+    c.beginPath();
+    c.ellipse(wx + 3.5, wy + 2.5, 2.2, 1.6, 0, 0, Math.PI * 2);
+    c.fill();
+    c.strokeStyle = '#666666';
+    c.lineWidth = 0.5;
+    c.beginPath();
+    c.moveTo(wx + 1.5, wy + 2.5); c.lineTo(wx + 5.5, wy + 2.5);
+    c.moveTo(wx + 3.5, wy + 1); c.lineTo(wx + 3.5, wy + 4);
+    c.stroke();
+    c.fillStyle = '#aaaaaa';
+    c.beginPath();
+    c.arc(wx + 3.5, wy + 2.5, 0.8, 0, Math.PI * 2);
+    c.fill();
+  }
+
+  // Headlights
+  c.fillStyle = '#ffffcc';
+  c.fillRect(x + 4, y, 6, 3);
+  c.fillRect(x + w - 10, y, 6, 3);
+
+  // Headlight cones
+  c.fillStyle = 'rgba(255,238,170,0.04)';
+  c.beginPath();
+  c.moveTo(x + 4, y);
+  c.lineTo(x - 8, y - 60);
+  c.lineTo(x + 14, y - 60);
+  c.closePath();
+  c.fill();
+  c.beginPath();
+  c.moveTo(x + w - 10, y);
+  c.lineTo(x + w - 18, y - 60);
+  c.lineTo(x + w + 4, y - 60);
+  c.closePath();
+  c.fill();
+
+  // Taillights
+  const braking = !nitroActive;
+  c.fillStyle = braking ? '#ff3333' : '#cc2222';
+  c.fillRect(x + 3, y + h - 4, 6, 3);
+  c.fillRect(x + w - 9, y + h - 4, 6, 3);
+  if (braking) {
+    c.fillStyle = 'rgba(255,51,51,0.15)';
+    c.beginPath();
+    c.arc(x + 6, y + h, 8, 0, Math.PI * 2);
+    c.fill();
+    c.beginPath();
+    c.arc(x + w - 6, y + h, 8, 0, Math.PI * 2);
+    c.fill();
+  }
+}
+
+// ═══════════ DRAW ENEMY CARS ═══════════
+function drawEnemyCar(c, e) {
+  const x = e.x - e.w / 2, y = e.y - e.h / 2;
+
+  // Shadow
+  c.fillStyle = 'rgba(0,0,0,0.22)';
+  c.beginPath();
+  c.ellipse(e.x + 3, e.y + 5, e.w * 0.55, e.h * 0.4, 0, 0, Math.PI * 2);
+  c.fill();
+
+  if (e.type === 0) {
+    // SEDAN
+    c.fillStyle = '#334466';
+    drawRoundRect(c, x, y, e.w, e.h, 4);
+    c.fill();
+    c.fillStyle = '#223355';
+    drawRoundRect(c, x + 3, y + e.h * 0.3, e.w - 6, e.h * 0.3, 3);
+    c.fill();
+    // Windshield (top — front of car faces away)
+    c.fillStyle = 'rgba(102,136,170,0.65)';
+    c.beginPath();
+    c.moveTo(x + 7, y + e.h * 0.2);
+    c.lineTo(x + e.w - 7, y + e.h * 0.2);
+    c.lineTo(x + e.w - 5, y + e.h * 0.32);
+    c.lineTo(x + 5, y + e.h * 0.32);
+    c.closePath();
+    c.fill();
+    // Rear window (bottom — facing player)
+    c.fillStyle = 'rgba(80,110,140,0.5)';
+    c.beginPath();
+    c.moveTo(x + 5, y + e.h * 0.65);
+    c.lineTo(x + e.w - 5, y + e.h * 0.65);
+    c.lineTo(x + e.w - 7, y + e.h * 0.78);
+    c.lineTo(x + 7, y + e.h * 0.78);
+    c.closePath();
+    c.fill();
+    // Headlights (top, facing away)
+    c.fillStyle = '#aaaabb';
+    c.fillRect(x + 3, y + 1, 5, 2.5);
+    c.fillRect(x + e.w - 8, y + 1, 5, 2.5);
+    // Taillights (bottom, facing player)
+    c.fillStyle = '#ff2222';
+    c.fillRect(x + 3, y + e.h - 3, 5, 2.5);
+    c.fillRect(x + e.w - 8, y + e.h - 3, 5, 2.5);
+    // Wheels
+    for (const [wx, wy] of [[x + 1, y + 5], [x + e.w - 7, y + 5], [x + 1, y + e.h - 10], [x + e.w - 7, y + e.h - 10]]) {
+      c.fillStyle = '#111111';
+      c.beginPath(); c.ellipse(wx + 3, wy + 2.5, 3, 2, 0, 0, Math.PI * 2); c.fill();
+      c.fillStyle = '#666688';
+      c.beginPath(); c.ellipse(wx + 3, wy + 2.5, 1.8, 1.2, 0, 0, Math.PI * 2); c.fill();
+    }
+
+  } else if (e.type === 1) {
+    // MINIVAN
+    c.fillStyle = '#445544';
+    drawRoundRect(c, x, y, e.w, e.h, 4);
+    c.fill();
+    c.fillStyle = '#3a4a3a';
+    c.fillRect(x + 2, y + e.h * 0.15, e.w - 4, e.h * 0.55);
+    // Rear windows
+    c.fillStyle = 'rgba(85,119,102,0.5)';
+    for (let i = 0; i < 3; i++) {
+      c.fillRect(x + 4 + i * (e.w - 8) / 3, y + e.h * 0.2, (e.w - 14) / 3, e.h * 0.12);
+    }
+    // Side windows
+    c.fillStyle = 'rgba(68,102,85,0.4)';
+    c.fillRect(x + 1, y + e.h * 0.2, 2, e.h * 0.35);
+    c.fillRect(x + e.w - 3, y + e.h * 0.2, 2, e.h * 0.35);
+    // Door line
+    c.strokeStyle = '#3a4a3a';
+    c.lineWidth = 0.7;
+    c.beginPath(); c.moveTo(x + e.w * 0.6, y + e.h * 0.18); c.lineTo(x + e.w * 0.6, y + e.h * 0.7); c.stroke();
+    // Headlights (top)
+    c.fillStyle = '#aaaa99';
+    c.fillRect(x + 3, y + 1, 6, 2.5);
+    c.fillRect(x + e.w - 9, y + 1, 6, 2.5);
+    // Taillight bar (bottom)
+    c.fillStyle = '#ff3333';
+    c.fillRect(x + 2, y + e.h - 4, e.w - 4, 4);
+    // Wheels
+    for (const [wx, wy] of [[x, y + 6], [x + e.w - 8, y + 6], [x, y + e.h - 12], [x + e.w - 8, y + e.h - 12]]) {
+      c.fillStyle = '#111111';
+      c.beginPath(); c.ellipse(wx + 4, wy + 3, 4, 3, 0, 0, Math.PI * 2); c.fill();
+      c.fillStyle = '#555566';
+      c.beginPath(); c.ellipse(wx + 4, wy + 3, 2.5, 1.8, 0, 0, Math.PI * 2); c.fill();
+    }
+
+  } else if (e.type === 2) {
+    // MOTORCYCLE (facing away — rider head at top, taillight at bottom)
+    c.fillStyle = '#aa2211';
+    drawRoundRect(c, x + 1, y + 4, e.w - 2, e.h - 8, 5);
+    c.fill();
+    // Rider body (upper half, facing away)
+    c.fillStyle = '#1a1a1a';
+    c.beginPath(); c.ellipse(e.x, e.y + 2, 5, 7, 0, 0, Math.PI * 2); c.fill();
+    // Helmet (top)
+    c.fillStyle = '#222222';
+    c.beginPath(); c.arc(e.x, e.y - 6, 4, 0, Math.PI * 2); c.fill();
+    // Handlebars
+    c.strokeStyle = '#333333'; c.lineWidth = 1.2;
+    c.beginPath(); c.moveTo(e.x - 6, e.y - 2); c.lineTo(e.x + 6, e.y - 2); c.stroke();
+    // Front wheel (top)
+    c.fillStyle = '#111111';
+    c.beginPath(); c.ellipse(e.x, y + 4, 4, 3, 0, 0, Math.PI * 2); c.fill();
+    // Rear wheel (bottom)
+    c.beginPath(); c.ellipse(e.x, y + e.h - 5, 4, 3, 0, 0, Math.PI * 2); c.fill();
+    // Taillight (bottom, facing player)
+    c.fillStyle = '#ff2200';
+    c.fillRect(e.x - 2, y + e.h - 3, 4, 2);
+
+  } else if (e.type === 3) {
+    // POLICE CAR
+    c.fillStyle = '#1a1a2e';
+    drawRoundRect(c, x, y, e.w, e.h, 4);
+    c.fill();
+    c.fillStyle = '#111122';
+    drawRoundRect(c, x + 3, y + e.h * 0.3, e.w - 6, e.h * 0.25, 3);
+    c.fill();
+    // White side stripe
+    c.fillStyle = 'rgba(255,255,255,0.5)';
+    c.fillRect(x + 1, y + e.h * 0.45, e.w - 2, 2);
+    // Light bar (red/blue)
+    c.fillStyle = '#ff2244';
+    c.fillRect(x + 3, y + e.h * 0.26, 5, 3);
+    c.fillStyle = '#2244ff';
+    c.fillRect(x + e.w - 8, y + e.h * 0.26, 5, 3);
+    // Windshield
+    c.fillStyle = 'rgba(100,130,170,0.6)';
+    c.beginPath();
+    c.moveTo(x + 5, y + e.h * 0.2);
+    c.lineTo(x + e.w - 5, y + e.h * 0.2);
+    c.lineTo(x + e.w - 7, y + e.h * 0.32);
+    c.lineTo(x + 7, y + e.h * 0.32);
+    c.closePath(); c.fill();
+    // Headlights (top)
+    c.fillStyle = '#ddddff';
+    c.fillRect(x + 3, y + 1, 5, 2.5);
+    c.fillRect(x + e.w - 8, y + 1, 5, 2.5);
+    // Taillights (bottom)
+    c.fillStyle = '#ff2222';
+    c.fillRect(x + 3, y + e.h - 3, 5, 2.5);
+    c.fillRect(x + e.w - 8, y + e.h - 3, 5, 2.5);
+    // Wheels
+    for (const [wx, wy] of [[x + 1, y + 5], [x + e.w - 7, y + 5], [x + 1, y + e.h - 10], [x + e.w - 7, y + e.h - 10]]) {
+      c.fillStyle = '#111'; c.beginPath(); c.ellipse(wx + 3, wy + 2.5, 3, 2, 0, 0, Math.PI * 2); c.fill();
+    }
+
+  } else if (e.type === 4) {
+    // TRUCK
+    c.fillStyle = '#cc6622';
+    drawRoundRect(c, x, y, e.w, e.h, 3);
+    c.fill();
+    // Cargo area
+    c.fillStyle = '#aa5518';
+    c.fillRect(x + 2, y + 2, e.w - 4, e.h * 0.55);
+    // Cargo lines
+    c.strokeStyle = '#884411'; c.lineWidth = 0.6;
+    for (let ly = 0.1; ly < 0.5; ly += 0.12) {
+      c.beginPath(); c.moveTo(x + 3, y + e.h * ly); c.lineTo(x + e.w - 3, y + e.h * ly); c.stroke();
+    }
+    // Cab
+    c.fillStyle = '#dd7728';
+    drawRoundRect(c, x + 1, y + e.h * 0.58, e.w - 2, e.h * 0.35, 3);
+    c.fill();
+    // Cab window
+    c.fillStyle = 'rgba(100,150,180,0.5)';
+    c.fillRect(x + 4, y + e.h * 0.6, e.w - 8, e.h * 0.12);
+    // Headlights (top)
+    c.fillStyle = '#ffffaa';
+    c.fillRect(x + 2, y + 1, 6, 2.5);
+    c.fillRect(x + e.w - 8, y + 1, 6, 2.5);
+    // Taillights (bottom)
+    c.fillStyle = '#ff3322';
+    c.fillRect(x + 2, y + e.h - 3, e.w - 4, 3);
+    // Wheels
+    for (const [wx, wy] of [[x, y + 6], [x + e.w - 8, y + 6], [x, y + e.h - 12], [x + e.w - 8, y + e.h - 12]]) {
+      c.fillStyle = '#111'; c.beginPath(); c.ellipse(wx + 4, wy + 3, 4, 3, 0, 0, Math.PI * 2); c.fill();
+    }
+
+  } else if (e.type === 5) {
+    // TAXI (yellow)
+    c.fillStyle = '#ddbb22';
+    drawRoundRect(c, x, y, e.w, e.h, 4);
+    c.fill();
+    c.fillStyle = '#ccaa11';
+    drawRoundRect(c, x + 3, y + e.h * 0.3, e.w - 6, e.h * 0.28, 3);
+    c.fill();
+    // Taxi sign on roof
+    c.fillStyle = '#ffee66';
+    c.fillRect(x + e.w / 2 - 5, y + e.h * 0.28, 10, 4);
+    c.fillStyle = '#222';
+    c.font = '3px monospace'; c.textAlign = 'center';
+    c.fillText('TAXI', x + e.w / 2, y + e.h * 0.28 + 3.2);
+    // Windshield
+    c.fillStyle = 'rgba(90,140,180,0.6)';
+    c.beginPath();
+    c.moveTo(x + 5, y + e.h * 0.2);
+    c.lineTo(x + e.w - 5, y + e.h * 0.2);
+    c.lineTo(x + e.w - 7, y + e.h * 0.32);
+    c.lineTo(x + 7, y + e.h * 0.32);
+    c.closePath(); c.fill();
+    // Checker stripe
+    c.fillStyle = '#222';
+    for (let cx = x + 2; cx < x + e.w - 2; cx += 6) {
+      c.fillRect(cx, y + e.h * 0.52, 3, 2);
+    }
+    // Headlights (top)
+    c.fillStyle = '#ffffcc';
+    c.fillRect(x + 3, y + 1, 5, 2.5);
+    c.fillRect(x + e.w - 8, y + 1, 5, 2.5);
+    // Taillights (bottom)
+    c.fillStyle = '#ff2222';
+    c.fillRect(x + 3, y + e.h - 3, 5, 2.5);
+    c.fillRect(x + e.w - 8, y + e.h - 3, 5, 2.5);
+    // Wheels
+    for (const [wx, wy] of [[x + 1, y + 5], [x + e.w - 7, y + 5], [x + 1, y + e.h - 10], [x + e.w - 7, y + e.h - 10]]) {
+      c.fillStyle = '#111'; c.beginPath(); c.ellipse(wx + 3, wy + 2.5, 3, 2, 0, 0, Math.PI * 2); c.fill();
+    }
+
+  } else {
+    // SUV
+    c.fillStyle = '#556b7a';
+    drawRoundRect(c, x, y, e.w, e.h, 4);
+    c.fill();
+    c.fillStyle = '#4a5f6e';
+    c.fillRect(x + 2, y + e.h * 0.12, e.w - 4, e.h * 0.5);
+    // Roof rails
+    c.strokeStyle = '#8899aa'; c.lineWidth = 0.8;
+    c.beginPath(); c.moveTo(x + 2, y + e.h * 0.15); c.lineTo(x + 2, y + e.h * 0.55); c.stroke();
+    c.beginPath(); c.moveTo(x + e.w - 2, y + e.h * 0.15); c.lineTo(x + e.w - 2, y + e.h * 0.55); c.stroke();
+    // Windows
+    c.fillStyle = 'rgba(80,130,160,0.5)';
+    c.fillRect(x + 4, y + e.h * 0.18, e.w - 8, e.h * 0.14);
+    c.fillRect(x + 4, y + e.h * 0.36, e.w - 8, e.h * 0.12);
+    // Headlights (top)
+    c.fillStyle = '#ddeeff';
+    c.fillRect(x + 2, y + 1, 6, 2.5);
+    c.fillRect(x + e.w - 8, y + 1, 6, 2.5);
+    // Taillights (bottom)
+    c.fillStyle = '#ff3333';
+    c.fillRect(x + 2, y + e.h - 3, 6, 3);
+    c.fillRect(x + e.w - 8, y + e.h - 3, 6, 3);
+    // Wheels (bigger)
+    for (const [wx, wy] of [[x, y + 6], [x + e.w - 8, y + 6], [x, y + e.h - 12], [x + e.w - 8, y + e.h - 12]]) {
+      c.fillStyle = '#111'; c.beginPath(); c.ellipse(wx + 4, wy + 3, 4, 3, 0, 0, Math.PI * 2); c.fill();
+      c.fillStyle = '#444'; c.beginPath(); c.ellipse(wx + 4, wy + 3, 2.5, 1.8, 0, 0, Math.PI * 2); c.fill();
+    }
+  }
+}
+
+// ═══════════ DRAW HUD ═══════════
+function drawHUD(c) {
+  const biomeT = transitioning ? transitionProgress : (currentBiome === BIOME.DESERT ? 0 : 1);
+  const scoreColor = lerpColor('#cc8833', '#88aa66', biomeT);
+  const scoreValColor = lerpColor('#ffcc66', '#ccffaa', biomeT);
+  const nitroColor = lerpColor('#cc6600', '#33cc66', biomeT);
+
+  // Score
+  c.textAlign = 'left';
+  c.font = '11px monospace';
+  c.fillStyle = scoreColor;
+  c.fillText('SCORE', 16, 28);
+  c.font = 'bold 20px monospace';
+  c.fillStyle = scoreValColor;
+  c.fillText(score.toString(), 16, 50);
+
+  // Multiplier
+  if (multiplier > 1) {
+    c.font = 'bold 13px monospace';
+    c.fillStyle = '#ffaa00';
+    c.fillText('x' + multiplier.toFixed(1), 16, 67);
+  }
+
+  // Speed + hearts
+  c.textAlign = 'right';
+  const kmh = Math.floor(speed * 35);
+  c.font = '13px monospace';
+  c.fillStyle = scoreValColor;
+  c.fillText(kmh + ' KM/H', W - 16, 28);
+
+  // Hearts
+  for (let i = 0; i < 3; i++) {
+    const hx = W - 80 + i * 22, hy = 36;
+    c.fillStyle = i < lives ? '#cc3333' : '#333333';
+    c.beginPath();
+    c.moveTo(hx, hy + 3);
+    c.bezierCurveTo(hx, hy, hx - 5, hy, hx - 5, hy + 3);
+    c.bezierCurveTo(hx - 5, hy + 6, hx, hy + 10, hx, hy + 12);
+    c.bezierCurveTo(hx, hy + 10, hx + 5, hy + 6, hx + 5, hy + 3);
+    c.bezierCurveTo(hx + 5, hy, hx, hy, hx, hy + 3);
+    c.fill();
+  }
+
+  // Nitro bar
+  const barW = 140, barH = 12;
+  const barX = W / 2 - barW / 2, barY = H - 30;
+  c.fillStyle = 'rgba(0,0,0,0.4)';
+  drawRoundRect(c, barX - 1, barY - 1, barW + 2, barH + 2, 6);
+  c.fill();
+  const nitroPct = nitroActive ? nitroTimer / 2.5 : (nitroCooldown > 0 ? 1 - nitroCooldown / 6 : 1);
+  c.fillStyle = nitroActive ? '#ffaa00' : (nitroCooldown > 0 ? '#555555' : nitroColor);
+  drawRoundRect(c, barX, barY, barW * nitroPct, barH, 5);
+  c.fill();
+  c.font = '9px monospace';
+  c.textAlign = 'center';
+  c.fillStyle = '#ffffff';
+  c.fillText(nitroActive ? 'NITRO!' : (nitroCooldown > 0 ? 'COOLDOWN' : 'NITRO [SPACE]'), W / 2, barY + 10);
+
+  // Distance
+  c.textAlign = 'left';
+  c.font = '11px monospace';
+  c.fillStyle = scoreColor;
+  c.fillText('DIST ' + (distance / 1000).toFixed(1) + ' km', 16, H - 20);
+
+  // FPS
+  c.textAlign = 'right';
+  c.font = '10px monospace';
+  c.fillStyle = '#445544';
+  c.fillText(fpsDisplay + ' FPS', W - 10, H - 10);
+
+  // Biome badge
+  if (biomeBadge.show && biomeBadge.alpha > 0) {
+    c.save();
+    c.globalAlpha = biomeBadge.alpha;
+    const bw = 160, bh = 28;
+    const bx = W / 2 - bw / 2, by = biomeBadge.y;
+    c.fillStyle = biomeBadge.color;
+    drawRoundRect(c, bx, by, bw, bh, 8);
+    c.fill();
+    c.strokeStyle = 'rgba(255,255,255,0.3)';
+    c.lineWidth = 1;
+    drawRoundRect(c, bx, by, bw, bh, 8);
+    c.stroke();
+    // Icon
+    const ix = bx + 18, iy = by + bh / 2;
+    if (biomeBadge.name.includes('DESERT')) {
+      c.fillStyle = '#3a6b2a';
+      c.fillRect(ix - 2, iy - 8, 4, 14);
+      c.fillRect(ix - 7, iy - 4, 5, 3);
+      c.fillRect(ix - 7, iy - 7, 3, 6);
+      c.fillRect(ix + 2, iy - 2, 5, 3);
+      c.fillRect(ix + 5, iy - 5, 3, 5);
+    } else {
+      c.fillStyle = '#4a3a2a';
+      c.fillRect(ix - 1.5, iy - 2, 3, 10);
+      c.fillStyle = '#1a4a10';
+      c.beginPath();
+      c.arc(ix, iy - 5, 7, 0, Math.PI * 2);
+      c.fill();
+    }
+    c.font = 'bold 11px monospace';
+    c.textAlign = 'center';
+    c.fillStyle = '#ffffff';
+    c.fillText(biomeBadge.name, bx + bw / 2 + 8, by + bh / 2 + 4);
+    c.restore();
+  }
+
+  // Near miss popup
+  if (nearMissFlash > 0) {
+    c.save();
+    c.globalAlpha = nearMissFlash;
+    c.font = 'bold 16px monospace';
+    c.textAlign = 'center';
+    c.fillStyle = '#ffdd44';
+    c.fillText(nearMissText, W / 2, player.y - 40 - (1 - nearMissFlash) * 20);
+    c.restore();
+  }
+
+  // Red vignette on hit
+  if (redVignette > 0) {
+    c.save();
+    c.globalAlpha = redVignette * 0.3;
+    const vgrd = c.createRadialGradient(W / 2, H / 2, H * 0.3, W / 2, H / 2, H * 0.8);
+    vgrd.addColorStop(0, 'rgba(255,0,0,0)');
+    vgrd.addColorStop(1, 'rgba(255,0,0,1)');
+    c.fillStyle = vgrd;
+    c.fillRect(0, 0, W, H);
+    c.restore();
+  }
+
+  // Mobile touch buttons
+  if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+    const btns = getTouchBtnRects();
+    const drawBtn = (r, icon, active) => {
+      c.fillStyle = active ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.1)';
+      c.beginPath();
+      c.arc(r.x + r.w / 2, r.y + r.h / 2, r.w / 2, 0, Math.PI * 2);
+      c.fill();
+      c.strokeStyle = 'rgba(255,255,255,0.3)';
+      c.lineWidth = 2;
+      c.stroke();
+      c.fillStyle = active ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.5)';
+      c.font = 'bold 22px sans-serif';
+      c.textAlign = 'center';
+      c.textBaseline = 'middle';
+      c.fillText(icon, r.x + r.w / 2, r.y + r.h / 2);
+    };
+    drawBtn(btns.left, '\u25C0', touchBtnLeft);
+    drawBtn(btns.right, '\u25B6', touchBtnRight);
+  }
+}
+
+// ═══════════ DRAW START SCREEN ═══════════
+function drawStartScreen(c) {
+  const mid = W / 2;
+
+  // Left half desert, right half forest
+  c.save();
+  c.beginPath();
+  c.rect(0, 0, mid, H);
+  c.clip();
+  drawDesert(c, menuScroll, 1);
+  c.restore();
+
+  c.save();
+  c.beginPath();
+  c.rect(mid, 0, mid, H);
+  c.clip();
+  drawForest(c, menuScroll, 1);
+  c.restore();
+
+  // Split line
+  c.strokeStyle = 'rgba(255,255,255,0.2)';
+  c.lineWidth = 2;
+  c.beginPath(); c.moveTo(mid, 0); c.lineTo(mid, H); c.stroke();
+
+  // Overlay
+  c.fillStyle = 'rgba(0,0,0,0.45)';
+  c.fillRect(0, 0, W, H);
+
+  // Title
+  const ty = H * 0.35;
+  c.textAlign = 'center';
+  c.font = 'bold 38px monospace';
+
+  c.save();
+  c.beginPath(); c.rect(0, 0, mid, H); c.clip();
+  c.fillStyle = '#ffcc66';
+  c.fillText('ROAD ESCAPE', mid, ty);
+  c.restore();
+
+  c.save();
+  c.beginPath(); c.rect(mid, 0, mid, H); c.clip();
+  c.fillStyle = '#88cc66';
+  c.fillText('ROAD ESCAPE', mid, ty);
+  c.restore();
+
+  // Subtitle
+  c.font = '13px monospace';
+  c.fillStyle = '#ccccaa';
+  c.fillText('TWO WORLDS \u2014 ONE ROAD', mid, ty + 30);
+
+  // Controls
+  c.font = '11px monospace';
+  c.fillStyle = 'rgba(200,200,180,0.6)';
+  c.fillText('\u2190 \u2192 or A/D: Steer   |   SPACE: Nitro   |   P: Pause', mid, ty + 60);
+
+  // Blink enter
+  if (Math.floor(totalTime * 1.43) % 2 === 0) {
+    c.font = 'bold 16px monospace';
+    c.fillStyle = '#ffffff';
+    c.fillText('PRESS ENTER', mid, ty + 100);
+  }
+
+  // Best score
+  if (bestScore > 0) {
+    c.font = '11px monospace';
+    c.fillStyle = '#888877';
+    c.fillText('BEST: ' + bestScore, mid, ty + 130);
+  }
+
+  // "?" button — top right
+  faqBtnRect.x = W - 50;
+  faqBtnRect.y = 14;
+  c.fillStyle = 'rgba(255,255,255,0.15)';
+  c.beginPath();
+  c.arc(faqBtnRect.x + 18, faqBtnRect.y + 18, 18, 0, Math.PI * 2);
+  c.fill();
+  c.strokeStyle = 'rgba(255,255,255,0.35)';
+  c.lineWidth = 1.5;
+  c.stroke();
+  c.fillStyle = 'rgba(255,255,255,0.7)';
+  c.font = 'bold 18px sans-serif';
+  c.textAlign = 'center';
+  c.textBaseline = 'middle';
+  c.fillText('?', faqBtnRect.x + 18, faqBtnRect.y + 18);
+
+  // FAQ overlay
+  if (showFaq) {
+    c.fillStyle = 'rgba(0,0,0,0.85)';
+    c.fillRect(0, 0, W, H);
+
+    c.textAlign = 'center';
+    c.font = 'bold 22px monospace';
+    c.fillStyle = '#ffffff';
+    c.fillText('HOW TO PLAY', mid, H * 0.12);
+
+    c.font = '13px monospace';
+    c.fillStyle = '#ccccaa';
+    const lines = [
+      '',
+      '\u2190 \u2192  or  A / D',
+      'Change lanes',
+      '',
+      'SPACE',
+      'Activate Nitro boost',
+      '',
+      '\u2500\u2500\u2500 MOBILE \u2500\u2500\u2500',
+      '',
+      '\u25C0  \u25B6  buttons',
+      'Change lanes',
+      '',
+      'Double tap screen',
+      'Activate Nitro boost',
+      '',
+      'P',
+      'Pause game',
+      '',
+      '\u2500\u2500\u2500 TIPS \u2500\u2500\u2500',
+      '',
+      'Dodge traffic to survive',
+      'Biomes change every 45s',
+      'Speed increases each biome',
+      'Near miss = +50 bonus',
+    ];
+    let ly = H * 0.18;
+    for (const line of lines) {
+      if (line.includes('\u2500')) {
+        c.fillStyle = '#887766';
+        c.font = '11px monospace';
+      } else if (line === 'Change lanes' || line === 'Activate Nitro boost' || line === 'Pause game' || line.startsWith('Dodge') || line.startsWith('Biomes') || line.startsWith('Speed') || line.startsWith('Near')) {
+        c.fillStyle = '#999988';
+        c.font = '11px monospace';
+      } else {
+        c.fillStyle = '#ffddaa';
+        c.font = 'bold 14px monospace';
+      }
+      c.fillText(line, mid, ly);
+      ly += 20;
+    }
+
+    c.font = '12px monospace';
+    c.fillStyle = 'rgba(255,255,255,0.4)';
+    c.fillText('Tap anywhere to close', mid, H - 40);
+  }
+}
+
+// ═══════════ DRAW GAME OVER ═══════════
+function drawGameOver(c) {
+  c.fillStyle = 'rgba(0,0,0,0.73)';
+  c.fillRect(0, 0, W, H);
+
+  c.textAlign = 'center';
+  c.font = 'bold 32px monospace';
+  c.fillStyle = '#cc4444';
+  c.fillText('GAME OVER', W / 2, H * 0.32);
+
+  c.font = '14px monospace';
+  c.fillStyle = '#ddddcc';
+  c.fillText('SCORE: ' + score, W / 2, H * 0.42);
+  c.fillText('BEST: ' + bestScore, W / 2, H * 0.47);
+  c.fillText('DISTANCE: ' + (distance / 1000).toFixed(1) + ' km', W / 2, H * 0.52);
+  c.fillText('BIOME TRANSITIONS: ' + biomeTransitions, W / 2, H * 0.57);
+
+  if (Math.floor(totalTime * 1.43) % 2 === 0) {
+    c.font = 'bold 14px monospace';
+    c.fillStyle = '#ffffff';
+    c.fillText('PRESS ENTER TO RESTART', W / 2, H * 0.67);
+  }
+}
+
+// ═══════════ DRAW PAUSE ═══════════
+function drawPause(c) {
+  c.fillStyle = 'rgba(0,0,0,0.55)';
+  c.fillRect(0, 0, W, H);
+  c.textAlign = 'center';
+  c.font = 'bold 28px monospace';
+  c.fillStyle = '#ffffff';
+  c.fillText('PAUSED', W / 2, H / 2);
+  c.font = '12px monospace';
+  c.fillStyle = '#aaaaaa';
+  c.fillText('Press P to resume', W / 2, H / 2 + 30);
+}
+
+// ═══════════ MAIN RENDER ═══════════
+function render() {
+  ctx.clearRect(0, 0, W, H);
+
+  if (gameState === STATE.MENU) {
+    drawStartScreen(ctx);
+    return;
+  }
+
+  const scroll = scrollOffset;
+
+  ctx.save();
+  ctx.translate(shakeX, shakeY);
+
+  if (transitioning) {
+    const oldAlpha = 1 - transitionProgress;
+    const newAlpha = transitionProgress;
+    const isDesertOld = currentBiome === BIOME.DESERT;
+
+    ctxD.clearRect(0, 0, W, H);
+    ctxF.clearRect(0, 0, W, H);
+
+    if (isDesertOld) {
+      drawDesert(ctxD, scroll, 1);
+      drawForest(ctxF, scroll, 1);
+    } else {
+      drawForest(ctxF, scroll, 1);
+      drawDesert(ctxD, scroll, 1);
+    }
+
+    if (isDesertOld) {
+      ctx.globalAlpha = oldAlpha;
+      ctx.drawImage(offDesert, 0, 0);
+      ctx.globalAlpha = newAlpha;
+      ctx.drawImage(offForest, 0, 0);
+    } else {
+      ctx.globalAlpha = oldAlpha;
+      ctx.drawImage(offForest, 0, 0);
+      ctx.globalAlpha = newAlpha;
+      ctx.drawImage(offDesert, 0, 0);
+    }
+    ctx.globalAlpha = 1;
+  } else {
+    if (currentBiome === BIOME.DESERT) {
+      drawDesert(ctx, scroll, 1);
+    } else {
+      drawForest(ctx, scroll, 1);
+    }
+  }
+
+  // Forest: player headlight cone
+  const showHeadlights = transitioning ? (nextBiome === BIOME.FOREST ? transitionProgress > 0.3 : currentBiome === BIOME.FOREST && transitionProgress < 0.7) : currentBiome === BIOME.FOREST;
+  if (showHeadlights) {
+    ctx.fillStyle = 'rgba(255,238,170,0.05)';
+    ctx.beginPath();
+    ctx.moveTo(player.x - 12, player.y - player.h / 2);
+    ctx.lineTo(player.x - 35, player.y - player.h / 2 - 100);
+    ctx.lineTo(player.x + 35, player.y - player.h / 2 - 100);
+    ctx.lineTo(player.x + 12, player.y - player.h / 2);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Draw enemies
+  for (const e of enemies) drawEnemyCar(ctx, e);
+
+  // Draw player
+  drawPlayerCar(ctx, player.x, player.y);
+
+  // Biome warning road sign
+  if (biomeWarningSign.show && gameState === STATE.PLAYING) {
+    const sy = biomeWarningSign.y;
+    const sx = ROAD_R + 12;
+    const toForest = currentBiome === BIOME.DESERT;
+    ctx.save();
+    ctx.globalAlpha = biomeWarningSign.alpha;
+    // Post
+    ctx.fillStyle = '#888';
+    ctx.fillRect(sx + 2, sy, 4, 40);
+    // Sign panel
+    const panelColor = toForest ? '#2a6b2a' : '#cc8833';
+    ctx.fillStyle = panelColor;
+    drawRoundRect(ctx, sx - 14, sy - 32, 38, 34, 4);
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.5;
+    drawRoundRect(ctx, sx - 12, sy - 30, 34, 30, 3);
+    ctx.stroke();
+    // Icon + text
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 9px sans-serif';
+    ctx.textAlign = 'center';
+    if (toForest) {
+      // Tree icon
+      ctx.fillStyle = '#4a3a2a';
+      ctx.fillRect(sx + 3, sy - 10, 3, 8);
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(sx + 4.5, sy - 14, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillText('FOREST', sx + 5, sy - 20);
+    } else {
+      // Cactus icon
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(sx + 2, sy - 18, 4, 14);
+      ctx.fillRect(sx - 2, sy - 12, 4, 3);
+      ctx.fillRect(sx + 6, sy - 10, 4, 3);
+      ctx.fillText('DESERT', sx + 5, sy - 22);
+    }
+    ctx.restore();
+  }
+
+  // Nitro visual effect
+  if (nitroActive) {
+    ctx.fillStyle = 'rgba(255,140,0,0.2)';
+    ctx.beginPath();
+    ctx.moveTo(player.x - 5, player.y + player.h / 2);
+    ctx.lineTo(player.x - 10, player.y + player.h / 2 + rng(15, 30));
+    ctx.lineTo(player.x, player.y + player.h / 2 + rng(20, 35));
+    ctx.lineTo(player.x + 10, player.y + player.h / 2 + rng(15, 30));
+    ctx.lineTo(player.x + 5, player.y + player.h / 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,220,50,0.3)';
+    ctx.beginPath();
+    ctx.moveTo(player.x - 3, player.y + player.h / 2);
+    ctx.lineTo(player.x - 6, player.y + player.h / 2 + rng(8, 18));
+    ctx.lineTo(player.x, player.y + player.h / 2 + rng(12, 22));
+    ctx.lineTo(player.x + 6, player.y + player.h / 2 + rng(8, 18));
+    ctx.lineTo(player.x + 3, player.y + player.h / 2);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  ctx.restore();
+
+  // HUD
+  drawHUD(ctx);
+
+  if (gameState === STATE.PAUSED) drawPause(ctx);
+  if (gameState === STATE.GAMEOVER) drawGameOver(ctx);
+}
+
+// ═══════════ GAME LOOP ═══════════
+let lastTime = 0;
+function gameLoop(timestamp) {
+  requestAnimationFrame(gameLoop);
+  const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
+  lastTime = timestamp;
+  totalTime += gameState === STATE.MENU ? dt : 0;
+
+  fpsCounter++;
+  fpsTime += dt;
+  if (fpsTime >= 1) { fpsDisplay = fpsCounter; fpsCounter = 0; fpsTime = 0; }
+
+  update(dt);
+  if (audioStarted) updateAudio(dt);
+  render();
+}
+
+resetPlayer();
+requestAnimationFrame(gameLoop);
+
+</script>
+</body>
+</html>

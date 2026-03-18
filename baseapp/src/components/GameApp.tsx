@@ -449,6 +449,9 @@ function MainScreen({ address }: { address: string }) {
       await publicClient.waitForTransactionReceipt({ hash: tx as `0x${string}` });
       setTxStatus("Done!");
       await fetchPlayerData();
+      if (functionName === "race") {
+        window.location.href = "/game.html";
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Failed";
       setTxStatus(msg.length > 40 ? msg.slice(0, 40) + "…" : msg);
