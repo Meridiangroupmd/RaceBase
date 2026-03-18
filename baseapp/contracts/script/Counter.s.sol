@@ -1,19 +1,14 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.13;
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.26;
 
 import {Script} from "forge-std/Script.sol";
-import {Counter} from "../src/Counter.sol";
+import {RaceBase} from "../src/Counter.sol";
 
-contract CounterScript is Script {
-    Counter public counter;
-
-    function setUp() public {}
-
-    function run() public {
+contract RaceBaseScript is Script {
+    function run() external returns (RaceBase) {
         vm.startBroadcast();
-
-        counter = new Counter();
-
+        RaceBase rb = new RaceBase();
         vm.stopBroadcast();
+        return rb;
     }
 }
