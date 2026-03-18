@@ -11,6 +11,10 @@
     "homeUrl": "https://racebasee.vercel.app",
     "imageUrl": "https://racebasee.vercel.app/icon.png",
     "splashImageUrl": "https://racebasee.vercel.app/icon.png",
-    "splashBackgroundColor": "#0a0a14"
+    "splashBackgroundColor": "#0a0a14",
+    "subtitle": "Race to survive on Base",
+    "description": "Top-down racing game on Base. Daily check-ins, race to earn points, dodge traffic across desert and forest biomes.",
+    "primaryCategory": "games",
+    "tags": ["gaming", "racing", "onchain", "base"]
   }
 }
