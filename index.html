@@ -58,7 +58,7 @@ const lerpColor = (c1, c2, t) => {
 const STATE = { MENU: 0, PLAYING: 1, PAUSED: 2, GAMEOVER: 3 };
 let gameState = STATE.MENU;
 let score = 0, bestScore = parseInt(localStorage.getItem('roadEscapeBest')) || 0;
-let distance = 0, lives = 3, speed = 0, baseSpeed = 3.5;
+let distance = 0, lives = 3, speed = 0, baseSpeed = 4.5;
 let scrollOffset = 0, gameTime = 0, totalTime = 0;
 let nitroActive = false, nitroCooldown = 0, nitroTimer = 0;
 let invincible = false, invTimer = 0, flashCount = 0;
@@ -68,8 +68,10 @@ let nearMissFlash = 0, nearMissText = '';
 let multiplier = 1;
 let biomeTransitions = 0;
 let difficultyTimer = 0, spawnRate = 0.018, speedCap = 1.3;
-let enemyTypePool = [0];
+let enemyTypePool = [0, 1, 2, 3, 4, 5, 6];
 let pauseAlpha = 0;
+let showFaq = false;
+const faqBtnRect = { x: 0, y: 0, w: 36, h: 36 };
 let menuScroll = 0;
 let fpsCounter = 0, fpsDisplay = 0, fpsTime = 0;
 
@@ -79,10 +81,13 @@ let currentBiome = BIOME.DESERT;
 let nextBiome = BIOME.FOREST;
 let biomeTimer = 0;
 const BIOME_DURATION = 45;
-const TRANSITION_DURATION = 3;
+const TRANSITION_DURATION = 5;
+const BIOME_WARNING_TIME = 10;
 let transitioning = false;
 let transitionProgress = 0;
 let biomeBadge = { show: false, alpha: 0, y: -40, timer: 0, name: '', color: '' };
+let biomeWarningShown = false;
+let biomeWarningSign = { show: false, y: 0, alpha: 0 };
 
 // ═══════════ ROAD DECORATION POOLS ═══════════
 let cacti = [], rocks = [], roadSigns = [], utilityPoles = [], deadShrubs = [];
@@ -93,44 +98,49 @@ let fallenLeaves = [], treeShadows = [], dappleSpots = [];
 function initDesertObjects() {
   cacti = []; rocks = []; roadSigns = []; utilityPoles = [];
   deadShrubs = []; tumbleweeds = []; sandDrifts = []; desertCracks = [];
-  for (let y = -100; y < H + 200; y += rng(60, 120)) {
-    const side = Math.random() < 0.5 ? -1 : 1;
-    const x = side > 0 ? ROAD_R + rng(20, SHOULDER_W - 20) : ROAD_L - rng(20, SHOULDER_W - 20);
-    cacti.push({ x, y, h: pick([18, 28, 40]), side });
+  const CYCLE = 3000;
+  // Cacti — 6 total, alternating sides, evenly spread across cycle
+  for (let i = 0; i < 6; i++) {
+    const side = i % 2 === 0 ? 1 : -1;
+    const x = side > 0 ? ROAD_R + rng(25, SHOULDER_W * 0.5) : ROAD_L - rng(25, SHOULDER_W * 0.5);
+    cacti.push({ x, y: i * (CYCLE / 6) + rng(0, 40), h: pick([22, 32, 44]), side, cycle: CYCLE });
   }
-  for (let y = -100; y < H + 200; y += rng(80, 160)) {
-    const side = Math.random() < 0.5 ? -1 : 1;
-    const x = side > 0 ? ROAD_R + rng(30, SHOULDER_W + 30) : ROAD_L - rng(30, SHOULDER_W + 30);
-    const cluster = [];
-    for (let i = 0; i < rngI(2, 4); i++) {
-      cluster.push({ dx: rng(-15, 15), dy: rng(-10, 10), w: rng(12, 25), h: rng(10, 20) });
-    }
-    rocks.push({ x, y, cluster, side });
-  }
-  for (let y = -100; y < H + 200; y += rng(180, 240)) {
-    const side = y % 400 < 200 ? 1 : -1;
-    const x = side > 0 ? ROAD_R + 8 : ROAD_L - 30;
-    roadSigns.push({ x, y, side, text: Math.random() < 0.5 ? 'HWY' : '' + rngI(55, 85) });
-  }
-  for (let y = -100; y < H + 200; y += 180) {
-    const side = y % 360 < 180 ? 1 : -1;
-    const x = side > 0 ? ROAD_R + SHOULDER_W * 0.7 : ROAD_L - SHOULDER_W * 0.7;
-    utilityPoles.push({ x, y, side });
-  }
-  for (let y = -100; y < H + 200; y += rng(40, 90)) {
-    const side = Math.random() < 0.5 ? -1 : 1;
-    const x = side > 0 ? ROAD_R + rng(5, SHOULDER_W - 10) : ROAD_L - rng(5, SHOULDER_W - 10);
-    deadShrubs.push({ x, y, size: rng(5, 12) });
-  }
+  // Rock formations — 3 total
   for (let i = 0; i < 3; i++) {
-    tumbleweeds.push({ x: rng(ROAD_L - SHOULDER_W, ROAD_R + SHOULDER_W), y: rng(0, H), vx: rng(0.3, 1.2) * (Math.random() < 0.5 ? 1 : -1), size: rng(7, 13) });
+    const side = i % 2 === 0 ? -1 : 1;
+    const x = side > 0 ? ROAD_R + SHOULDER_W * 0.55 : ROAD_L - SHOULDER_W * 0.55;
+    const cluster = [];
+    for (let j = 0; j < 2; j++) {
+      cluster.push({ dx: rng(-10, 10), dy: rng(-6, 6), w: rng(14, 20), h: rng(12, 16) });
+    }
+    rocks.push({ x, y: i * (CYCLE / 3) + rng(0, 60), cluster, side, cycle: CYCLE });
   }
-  for (let y = -50; y < H + 100; y += rng(30, 70)) {
-    const side = Math.random() < 0.5 ? -1 : 1;
-    sandDrifts.push({ x: side > 0 ? ROAD_R - rng(0, 15) : ROAD_L + rng(0, 15), y, w: rng(20, 50), h: rng(6, 14) });
+  // Road signs — 3 total
+  for (let i = 0; i < 3; i++) {
+    const side = i % 2 === 0 ? 1 : -1;
+    const x = side > 0 ? ROAD_R + 6 : ROAD_L - 28;
+    roadSigns.push({ x, y: i * (CYCLE / 3) + 150, side, text: i % 2 === 0 ? 'HWY' : '65', cycle: CYCLE });
   }
-  for (let y = -50; y < H + 100; y += rng(8, 25)) {
-    desertCracks.push({ x: ROAD_L + rng(5, ROAD_W - 5), y, len: rng(8, 25), angle: rng(-0.5, 0.5) });
+  // Utility poles — 3 total, right side only
+  for (let i = 0; i < 3; i++) {
+    utilityPoles.push({ x: ROAD_R + SHOULDER_W * 0.75, y: i * (CYCLE / 3) + 100, side: 1, cycle: CYCLE });
+  }
+  // Dead shrubs — 4 total
+  for (let i = 0; i < 4; i++) {
+    const side = i % 2 === 0 ? 1 : -1;
+    const x = side > 0 ? ROAD_R + rng(SHOULDER_W * 0.3, SHOULDER_W * 0.6) : ROAD_L - rng(SHOULDER_W * 0.3, SHOULDER_W * 0.6);
+    deadShrubs.push({ x, y: i * (CYCLE / 4) + rng(0, 50), size: rng(6, 9), cycle: CYCLE });
+  }
+  // No tumbleweeds
+  tumbleweeds = [];
+  // Sand drifts — 3 total
+  for (let i = 0; i < 3; i++) {
+    const side = i % 2 === 0 ? 1 : -1;
+    sandDrifts.push({ x: side > 0 ? ROAD_R - rng(0, 6) : ROAD_L + rng(0, 6), y: i * (CYCLE / 3) + 200, w: rng(22, 35), h: rng(5, 8), cycle: CYCLE });
+  }
+  // Road cracks — 5 total
+  for (let i = 0; i < 5; i++) {
+    desertCracks.push({ x: ROAD_L + rng(10, ROAD_W - 10), y: i * (CYCLE / 5), len: rng(10, 18), angle: rng(-0.2, 0.2), cycle: CYCLE });
   }
 }
 
@@ -200,23 +210,47 @@ let enemies = [];
 const ENEMY_TYPES = [
   { name: 'sedan', w: 28, h: 46 },
   { name: 'minivan', w: 34, h: 58 },
-  { name: 'motorcycle', w: 14, h: 30 }
+  { name: 'motorcycle', w: 14, h: 30 },
+  { name: 'police', w: 28, h: 48 },
+  { name: 'truck', w: 32, h: 64 },
+  { name: 'taxi', w: 28, h: 46 },
+  { name: 'suv', w: 30, h: 52 }
 ];
 
+let spawnCooldown = 0;
+const ENEMY_SPEED_RATIO = 0.35;
+
 function spawnEnemy() {
+  if (spawnCooldown > 0) return;
+
+  // Find lanes that have NO enemy on screen at all
+  const occupiedLanes = new Set();
+  for (const e of enemies) {
+    if (e.y < H + 60) occupiedLanes.add(e.targetLane);
+  }
+
+  // Available = lanes with zero cars
+  const freeLanes = [0, 1, 2].filter(l => !occupiedLanes.has(l));
+  if (freeLanes.length === 0) return;
+
+  // Spawn 1 car in a free lane (never blocks all 3)
+  const lane = pick(freeLanes);
   const typeIdx = pick(enemyTypePool);
   const type = ENEMY_TYPES[typeIdx];
-  const lane = rngI(0, NUM_LANES);
-  const x = ROAD_L + LANE_W * lane + LANE_W / 2;
-  for (const e of enemies) {
-    if (Math.abs(e.x - x) < LANE_W * 0.5 && e.y < type.h + 80) return;
-  }
+
   enemies.push({
-    type: typeIdx, x, y: -type.h - 10, w: type.w, h: type.h,
-    lane, speed: speed * rng(0.55, 0.78), drift: rng(0, Math.PI * 2),
-    driftAmp: typeIdx === 2 ? rng(2, 5) : rng(1, 4), passed: false
+    type: typeIdx,
+    x: ROAD_L + LANE_W * lane + LANE_W / 2,
+    y: -type.h - 10,
+    w: type.w, h: type.h,
+    lane, targetLane: lane,
+    speed: speed * ENEMY_SPEED_RATIO,
+    passed: false
   });
+
+  spawnCooldown = Math.max(0.4, 1.0 - gameTime * 0.004);
 }
+
 
 // ═══════════ AUDIO SYSTEM ═══════════
 let audioCtx = null, audioStarted = false;
@@ -345,18 +379,53 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
 
+let touchBtnLeft = false, touchBtnRight = false;
+const BTN_SIZE = 64, BTN_PAD = 20;
+let lastTapTime = 0;
+
+function getTouchBtnRects() {
+  const y = H - BTN_SIZE - BTN_PAD;
+  return {
+    left: { x: BTN_PAD, y, w: BTN_SIZE, h: BTN_SIZE },
+    right: { x: W - BTN_SIZE - BTN_PAD, y, w: BTN_SIZE, h: BTN_SIZE },
+  };
+}
+
+function hitTest(tx, ty, r) { return tx >= r.x && tx <= r.x + r.w && ty >= r.y && ty <= r.y + r.h; }
+
 canvas.addEventListener('touchstart', e => {
   e.preventDefault();
   initAudio();
   if (gameState === STATE.MENU || gameState === STATE.GAMEOVER) { startGame(); return; }
   if (gameState !== STATE.PLAYING) return;
-  const t = e.touches[0];
-  const rx = t.clientX / W;
-  if (rx < 0.33) moveLeft();
-  else if (rx > 0.66) moveRight();
-  else activateNitro();
+  const now = Date.now();
+  const btns = getTouchBtnRects();
+  let hitBtn = false;
+  for (const t of e.changedTouches) {
+    const tx = t.clientX, ty = t.clientY;
+    if (hitTest(tx, ty, btns.left)) { moveLeft(); touchBtnLeft = true; hitBtn = true; }
+    else if (hitTest(tx, ty, btns.right)) { moveRight(); touchBtnRight = true; hitBtn = true; }
+  }
+  if (!hitBtn) {
+    if (now - lastTapTime < 300) { activateNitro(); lastTapTime = 0; }
+    else { lastTapTime = now; }
+  }
 }, { passive: false });
-canvas.addEventListener('click', () => initAudio());
+
+canvas.addEventListener('touchend', e => {
+  touchBtnLeft = false; touchBtnRight = false;
+}, { passive: false });
+
+canvas.addEventListener('click', (ev) => {
+  initAudio();
+  if (showFaq) { showFaq = false; return; }
+  if (gameState === STATE.MENU) {
+    const cx = ev.clientX, cy = ev.clientY;
+    if (cx >= faqBtnRect.x && cx <= faqBtnRect.x + faqBtnRect.w && cy >= faqBtnRect.y && cy <= faqBtnRect.y + faqBtnRect.h) {
+      showFaq = true;
+    }
+  }
+});
 
 function moveLeft() {
   if (player.lane > 0) {
@@ -391,9 +460,10 @@ function startGame() {
   shakeTimer = 0; redVignette = 0; nearMissFlash = 0;
   multiplier = 1; biomeTransitions = 0;
   difficultyTimer = 0; spawnRate = 0.018; speedCap = 1.3;
-  enemyTypePool = [0];
+  enemyTypePool = [0, 1, 2, 3, 4, 5, 6];
   currentBiome = BIOME.DESERT; nextBiome = BIOME.FOREST;
   transitioning = false; transitionProgress = 0; biomeTimer = 0;
+  biomeWarningShown = false; biomeWarningSign = { show: false, y: 0, alpha: 0 };
   enemies = [];
   resetPlayer();
   initDesertObjects();
@@ -441,8 +511,6 @@ function update(dt) {
     spawnRate = Math.min(0.06, spawnRate * 1.1);
     speedCap += 0.05;
   }
-  if (gameTime > 60 && !enemyTypePool.includes(1)) enemyTypePool.push(1);
-  if (gameTime > 120 && !enemyTypePool.includes(2)) enemyTypePool.push(2);
 
   // Nitro
   if (nitroActive) {
@@ -459,9 +527,8 @@ function update(dt) {
   keys['KeyA'] = false; keys['KeyD'] = false;
   keys['Space'] = false;
 
-  const moveSpeed = 12 * dt * 60;
   const dx = player.targetX - player.x;
-  if (Math.abs(dx) > 1) player.x += dx * Math.min(1, moveSpeed * 0.08);
+  if (Math.abs(dx) > 0.5) player.x += dx * Math.min(1, dt * 8);
   else player.x = player.targetX;
 
   // Invincibility
@@ -479,13 +546,17 @@ function update(dt) {
   if (nearMissFlash > 0) nearMissFlash -= dt * 2;
 
   // Enemies
-  if (Math.random() < spawnRate * dt * 60) spawnEnemy();
+  spawnCooldown -= dt;
+  spawnEnemy();
+
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
+
     e.y += (speed - e.speed) * dt * 60;
-    e.drift += dt * 2;
-    const baseLaneX = ROAD_L + LANE_W * e.lane + LANE_W / 2;
-    e.x = baseLaneX + Math.sin(e.drift) * e.driftAmp;
+
+    // Stay centered in lane
+    const targetX = ROAD_L + LANE_W * e.targetLane + LANE_W / 2;
+    e.x = targetX;
 
     if (e.y > H + 60) { enemies.splice(i, 1); continue; }
 
@@ -511,11 +582,22 @@ function update(dt) {
     }
   }
 
+  // Biome warning sign — 10s before transition
+  if (!transitioning && !biomeWarningShown && biomeTimer >= BIOME_DURATION - BIOME_WARNING_TIME) {
+    biomeWarningShown = true;
+    biomeWarningSign = { show: true, y: -60, alpha: 1 };
+  }
+  if (biomeWarningSign.show) {
+    biomeWarningSign.y += speed * dt * 60;
+    if (biomeWarningSign.y > H + 80) biomeWarningSign.show = false;
+  }
+
   // Biome
   biomeTimer += dt;
   if (!transitioning && biomeTimer >= BIOME_DURATION) {
     transitioning = true;
     transitionProgress = 0;
+    biomeWarningShown = false;
     nextBiome = currentBiome === BIOME.DESERT ? BIOME.FOREST : BIOME.DESERT;
     playSound('whoosh');
   }
@@ -528,6 +610,7 @@ function update(dt) {
       biomeTimer = 0;
       biomeTransitions++;
       score += 200;
+      baseSpeed += 0.6;
       const isDesert = currentBiome === BIOME.DESERT;
       biomeBadge = {
         show: true, alpha: 0, y: -40, timer: 3,
@@ -596,131 +679,49 @@ function drawDesert(c, scroll, alpha) {
     const sw = side === 0 ? SHOULDER_W : SHOULDER_W;
     c.fillStyle = '#c8a060';
     c.fillRect(sx, 0, sw, H);
-    c.strokeStyle = '#aa8844';
-    c.lineWidth = 1;
-    const off = scroll % 50;
-    for (let y = -50 + off; y < H + 50; y += 25) {
-      const seed = Math.sin(y * 73.17 + side * 999) * 0.5 + 0.5;
-      const x1 = sx + 4 + seed * (sw - 8);
-      const x2 = sx + 4 + Math.sin(y * 37.3) * 0.5 * (sw - 8) + (sw - 8) * 0.25;
-      c.beginPath();
-      c.moveTo(x1, y);
-      c.lineTo(x2, y + 8 + seed * 10);
-      c.stroke();
-    }
-    c.fillStyle = '#aa7744';
-    for (let y = -30 + (scroll % 80); y < H + 30; y += 80) {
-      const rx = sx + (side === 0 ? sw * 0.3 : sw * 0.6) + Math.sin(y * 0.1) * 10;
-      const rs = 5 + Math.sin(y * 2.7) * 2;
-      c.beginPath();
-      c.ellipse(rx, y, rs, rs * 0.75, 0, 0, Math.PI * 2);
-      c.fill();
-      c.fillStyle = '#cc9966';
-      c.beginPath();
-      c.ellipse(rx - 2, y - 2, 3, 2, 0, 0, Math.PI * 2);
-      c.fill();
-      c.fillStyle = '#aa7744';
-    }
   }
 
-  // Road surface
-  const stripH = 8;
-  const colors = ['#4a4a3a', '#525248'];
-  const roadOff = scroll % (stripH * 2);
-  for (let y = -stripH * 2 + roadOff; y < H + stripH; y += stripH) {
-    const idx = Math.floor((y - roadOff) / stripH) & 1;
-    c.fillStyle = colors[idx];
-    c.fillRect(ROAD_L, y, ROAD_W, stripH);
-  }
+  // Road surface — clean asphalt
+  c.fillStyle = '#4d4d40';
+  c.fillRect(ROAD_L, 0, ROAD_W, H);
 
-  // Road cracks
-  c.strokeStyle = '#333328';
-  c.lineWidth = 0.7;
-  const crackOff = scroll % 400;
-  for (const cr of desertCracks) {
-    const cy = ((cr.y + crackOff) % (H + 100)) - 50;
-    c.beginPath();
-    c.moveTo(cr.x, cy);
-    c.lineTo(cr.x + Math.cos(cr.angle) * cr.len, cy + Math.sin(cr.angle) * cr.len + cr.len * 0.5);
-    c.stroke();
-  }
-
-  // Sand drifts on road edges
+  // Sand blown onto road edges
   for (const sd of sandDrifts) {
-    const sy = ((sd.y + scroll * 0.8) % (H + 150)) - 50;
-    c.fillStyle = 'rgba(221,187,136,0.13)';
+    const cyc = sd.cycle || 3000;
+    const sy = ((sd.y + scroll) % cyc) - 100;
+    if (sy < -30 || sy > H + 30) continue;
+    c.fillStyle = 'rgba(200,160,96,0.25)';
     c.beginPath();
     c.ellipse(sd.x, sy, sd.w, sd.h, 0, 0, Math.PI * 2);
     c.fill();
+    c.fillStyle = 'rgba(200,160,96,0.12)';
+    c.beginPath();
+    c.ellipse(sd.x + (sd.x > (ROAD_L + ROAD_R) / 2 ? -8 : 8), sy, sd.w * 0.6, sd.h * 0.7, 0, 0, Math.PI * 2);
+    c.fill();
   }
 
-  // Edge lines
+  // Edge lines — solid white
   c.strokeStyle = '#ffffff';
   c.lineWidth = 2;
   c.beginPath(); c.moveTo(ROAD_L, 0); c.lineTo(ROAD_L, H); c.stroke();
   c.beginPath(); c.moveTo(ROAD_R, 0); c.lineTo(ROAD_R, H); c.stroke();
 
-  // Center divider (yellow dashed)
-  c.strokeStyle = '#ffdd00';
-  c.lineWidth = 2.5;
-  c.setLineDash([20, 10]);
-  c.lineDashOffset = -scroll;
-  const cx = (ROAD_L + ROAD_R) / 2;
-  c.beginPath(); c.moveTo(cx, 0); c.lineTo(cx, H); c.stroke();
-
-  // Lane separators (white dashed)
-  c.strokeStyle = 'rgba(255,255,255,0.5)';
+  // Lane dividers — dashed white
+  c.strokeStyle = 'rgba(255,255,255,0.4)';
   c.lineWidth = 1.5;
-  c.setLineDash([12, 10]);
+  c.setLineDash([18, 14]);
+  c.lineDashOffset = -scroll;
   for (let i = 1; i < NUM_LANES; i++) {
     const lx = ROAD_L + LANE_W * i;
-    if (Math.abs(lx - cx) < 5) continue;
     c.beginPath(); c.moveTo(lx, 0); c.lineTo(lx, H); c.stroke();
   }
   c.setLineDash([]);
 
-  // Rock formations (behind cacti)
-  for (const rg of rocks) {
-    const ry = ((rg.y + scroll) % (H + 300)) - 100;
-    for (const r of rg.cluster) {
-      c.fillStyle = '#aa6633';
-      c.beginPath();
-      c.moveTo(rg.x + r.dx, ry + r.dy - r.h / 2);
-      c.lineTo(rg.x + r.dx + r.w / 2, ry + r.dy - r.h);
-      c.lineTo(rg.x + r.dx + r.w, ry + r.dy - r.h / 3);
-      c.lineTo(rg.x + r.dx + r.w * 0.8, ry + r.dy + r.h / 2);
-      c.lineTo(rg.x + r.dx - r.w * 0.1, ry + r.dy + r.h / 3);
-      c.closePath();
-      c.fill();
-      c.fillStyle = '#cc8844';
-      c.beginPath();
-      c.moveTo(rg.x + r.dx + 2, ry + r.dy - r.h / 2 + 2);
-      c.lineTo(rg.x + r.dx + r.w / 2 - 1, ry + r.dy - r.h + 3);
-      c.lineTo(rg.x + r.dx + r.w - 3, ry + r.dy - r.h / 3 + 2);
-      c.closePath();
-      c.fill();
-    }
-  }
-
-  // Dead shrubs
-  for (const ds of deadShrubs) {
-    const dy = ((ds.y + scroll) % (H + 200)) - 100;
-    c.fillStyle = '#665522';
-    c.beginPath();
-    c.moveTo(ds.x, dy);
-    c.lineTo(ds.x - ds.size * 0.6, dy - ds.size);
-    c.lineTo(ds.x - ds.size * 0.2, dy - ds.size * 0.5);
-    c.lineTo(ds.x + ds.size * 0.3, dy - ds.size * 1.1);
-    c.lineTo(ds.x + ds.size * 0.4, dy - ds.size * 0.4);
-    c.lineTo(ds.x + ds.size * 0.7, dy - ds.size * 0.8);
-    c.lineTo(ds.x + ds.size * 0.2, dy);
-    c.closePath();
-    c.fill();
-  }
-
   // Cacti
   for (const ca of cacti) {
-    const cy = ((ca.y + scroll) % (H + 300)) - 100;
+    const cyc = ca.cycle || 3000;
+    const cy = ((ca.y + scroll) % cyc) - 100;
+    if (cy < -60 || cy > H + 60) continue;
     const tw = 6, armW = 5;
     c.fillStyle = '#3a6b2a';
     c.fillRect(ca.x - tw / 2, cy - ca.h, tw, ca.h);
@@ -736,31 +737,23 @@ function drawDesert(c, scroll, alpha) {
     c.fillRect(ca.x - 1, cy - ca.h, 2, ca.h);
   }
 
-  // Utility poles + wires
-  const poleOff = scroll % 180;
-  let prevPole = null;
-  for (let y = -180 + poleOff; y < H + 180; y += 180) {
-    const side = (Math.floor((y - poleOff) / 180)) % 2 === 0 ? 1 : -1;
-    const px = side > 0 ? ROAD_R + SHOULDER_W * 0.7 : ROAD_L - SHOULDER_W * 0.7;
+  // Utility poles
+  for (const pole of utilityPoles) {
+    const cyc = pole.cycle || 3000;
+    const py = ((pole.y + scroll) % cyc) - 100;
+    if (py < -60 || py > H + 60) continue;
+    const px = pole.x;
     c.strokeStyle = '#777766';
     c.lineWidth = 2;
-    c.beginPath(); c.moveTo(px, y); c.lineTo(px, y - 50); c.stroke();
-    c.beginPath(); c.moveTo(px - 10, y - 48); c.lineTo(px + 10, y - 48); c.stroke();
-    if (prevPole) {
-      c.strokeStyle = 'rgba(102,102,85,0.26)';
-      c.lineWidth = 0.7;
-      c.beginPath();
-      c.moveTo(prevPole.x, prevPole.y - 48);
-      const midY = (prevPole.y - 48 + y - 48) / 2 + 15;
-      c.quadraticCurveTo((prevPole.x + px) / 2, midY, px, y - 48);
-      c.stroke();
-    }
-    prevPole = { x: px, y };
+    c.beginPath(); c.moveTo(px, py); c.lineTo(px, py - 50); c.stroke();
+    c.beginPath(); c.moveTo(px - 10, py - 48); c.lineTo(px + 10, py - 48); c.stroke();
   }
 
   // Road signs
   for (const rs of roadSigns) {
-    const ry = ((rs.y + scroll) % (H + 340)) - 100;
+    const cyc = rs.cycle || 3000;
+    const ry = ((rs.y + scroll) % cyc) - 100;
+    if (ry < -60 || ry > H + 60) continue;
     c.fillStyle = '#888888';
     c.fillRect(rs.x + 10, ry - 30, 3, 30);
     c.fillStyle = '#22aa22';
@@ -774,36 +767,6 @@ function drawDesert(c, scroll, alpha) {
     c.fillText(rs.text, rs.x + 12, ry - 36);
   }
 
-  // Tumbleweeds
-  for (const tw of tumbleweeds) {
-    c.fillStyle = '#887733';
-    c.beginPath();
-    c.arc(tw.x, tw.y, tw.size, 0, Math.PI * 2);
-    c.fill();
-    c.strokeStyle = '#665522';
-    c.lineWidth = 0.5;
-    c.stroke();
-  }
-
-  // Heat shimmer
-  const shimmerY = H * 0.05;
-  for (let i = 0; i < 3; i++) {
-    c.strokeStyle = 'rgba(255,255,255,0.03)';
-    c.lineWidth = 3;
-    c.beginPath();
-    for (let x = ROAD_L; x < ROAD_R; x += 4) {
-      const sy = shimmerY + i * 12 + Math.sin(x * 0.05 + totalTime * 1.5 + i) * 3;
-      if (x === ROAD_L) c.moveTo(x, sy); else c.lineTo(x, sy);
-    }
-    c.stroke();
-  }
-
-  // Sun glare
-  const grd = c.createRadialGradient(W / 2, 0, 0, W / 2, 0, H * 0.4);
-  grd.addColorStop(0, 'rgba(255,255,255,0.04)');
-  grd.addColorStop(1, 'rgba(255,255,255,0)');
-  c.fillStyle = grd;
-  c.fillRect(0, 0, W, H * 0.4);
 
   c.restore();
 }
@@ -1118,23 +1081,32 @@ function drawEnemyCar(c, e) {
     c.fillStyle = '#223355';
     drawRoundRect(c, x + 3, y + e.h * 0.3, e.w - 6, e.h * 0.3, 3);
     c.fill();
-    // Rear windshield
+    // Windshield (top — front of car faces away)
     c.fillStyle = 'rgba(102,136,170,0.65)';
     c.beginPath();
-    c.moveTo(x + 5, y + e.h * 0.2);
-    c.lineTo(x + e.w - 5, y + e.h * 0.2);
-    c.lineTo(x + e.w - 7, y + e.h * 0.35);
-    c.lineTo(x + 7, y + e.h * 0.35);
+    c.moveTo(x + 7, y + e.h * 0.2);
+    c.lineTo(x + e.w - 7, y + e.h * 0.2);
+    c.lineTo(x + e.w - 5, y + e.h * 0.32);
+    c.lineTo(x + 5, y + e.h * 0.32);
     c.closePath();
     c.fill();
-    // Headlights (at top since facing down)
+    // Rear window (bottom — facing player)
+    c.fillStyle = 'rgba(80,110,140,0.5)';
+    c.beginPath();
+    c.moveTo(x + 5, y + e.h * 0.65);
+    c.lineTo(x + e.w - 5, y + e.h * 0.65);
+    c.lineTo(x + e.w - 7, y + e.h * 0.78);
+    c.lineTo(x + 7, y + e.h * 0.78);
+    c.closePath();
+    c.fill();
+    // Headlights (top, facing away)
     c.fillStyle = '#aaaabb';
-    c.fillRect(x + 3, y + e.h - 3, 5, 2.5);
-    c.fillRect(x + e.w - 8, y + e.h - 3, 5, 2.5);
-    // Taillights (at bottom which is visually the top since car faces down)
-    c.fillStyle = '#ff2222';
     c.fillRect(x + 3, y + 1, 5, 2.5);
     c.fillRect(x + e.w - 8, y + 1, 5, 2.5);
+    // Taillights (bottom, facing player)
+    c.fillStyle = '#ff2222';
+    c.fillRect(x + 3, y + e.h - 3, 5, 2.5);
+    c.fillRect(x + e.w - 8, y + e.h - 3, 5, 2.5);
     // Wheels
     for (const [wx, wy] of [[x + 1, y + 5], [x + e.w - 7, y + 5], [x + 1, y + e.h - 10], [x + e.w - 7, y + e.h - 10]]) {
       c.fillStyle = '#111111';
@@ -1163,13 +1135,13 @@ function drawEnemyCar(c, e) {
     c.strokeStyle = '#3a4a3a';
     c.lineWidth = 0.7;
     c.beginPath(); c.moveTo(x + e.w * 0.6, y + e.h * 0.18); c.lineTo(x + e.w * 0.6, y + e.h * 0.7); c.stroke();
-    // Taillight bar
-    c.fillStyle = '#ff3333';
-    c.fillRect(x + 2, y + 1, e.w - 4, 4);
-    // Headlights
+    // Headlights (top)
     c.fillStyle = '#aaaa99';
-    c.fillRect(x + 3, y + e.h - 3, 6, 2.5);
-    c.fillRect(x + e.w - 9, y + e.h - 3, 6, 2.5);
+    c.fillRect(x + 3, y + 1, 6, 2.5);
+    c.fillRect(x + e.w - 9, y + 1, 6, 2.5);
+    // Taillight bar (bottom)
+    c.fillStyle = '#ff3333';
+    c.fillRect(x + 2, y + e.h - 4, e.w - 4, 4);
     // Wheels
     for (const [wx, wy] of [[x, y + 6], [x + e.w - 8, y + 6], [x, y + e.h - 12], [x + e.w - 8, y + e.h - 12]]) {
       c.fillStyle = '#111111';
@@ -1178,38 +1150,166 @@ function drawEnemyCar(c, e) {
       c.beginPath(); c.ellipse(wx + 4, wy + 3, 2.5, 1.8, 0, 0, Math.PI * 2); c.fill();
     }
 
-  } else {
-    // MOTORCYCLE
+  } else if (e.type === 2) {
+    // MOTORCYCLE (facing away — rider head at top, taillight at bottom)
     c.fillStyle = '#aa2211';
     drawRoundRect(c, x + 1, y + 4, e.w - 2, e.h - 8, 5);
     c.fill();
-    // Rider body
+    // Rider body (upper half, facing away)
     c.fillStyle = '#1a1a1a';
-    c.beginPath();
-    c.ellipse(e.x, e.y - 2, 5, 7, 0, 0, Math.PI * 2);
-    c.fill();
-    // Helmet
+    c.beginPath(); c.ellipse(e.x, e.y + 2, 5, 7, 0, 0, Math.PI * 2); c.fill();
+    // Helmet (top)
     c.fillStyle = '#222222';
-    c.beginPath();
-    c.arc(e.x, e.y + 6, 4, 0, Math.PI * 2);
-    c.fill();
-    c.fillStyle = '#334455';
-    c.fillRect(e.x - 3, e.y + 5, 6, 2);
+    c.beginPath(); c.arc(e.x, e.y - 6, 4, 0, Math.PI * 2); c.fill();
     // Handlebars
-    c.strokeStyle = '#333333';
-    c.lineWidth = 1.2;
-    c.beginPath();
-    c.moveTo(e.x - 6, e.y + 2);
-    c.lineTo(e.x + 6, e.y + 2);
-    c.stroke();
-    // Front wheel
+    c.strokeStyle = '#333333'; c.lineWidth = 1.2;
+    c.beginPath(); c.moveTo(e.x - 6, e.y - 2); c.lineTo(e.x + 6, e.y - 2); c.stroke();
+    // Front wheel (top)
     c.fillStyle = '#111111';
-    c.beginPath(); c.ellipse(e.x, y + e.h - 5, 4, 3, 0, 0, Math.PI * 2); c.fill();
-    // Rear wheel
     c.beginPath(); c.ellipse(e.x, y + 4, 4, 3, 0, 0, Math.PI * 2); c.fill();
-    // Taillight
+    // Rear wheel (bottom)
+    c.beginPath(); c.ellipse(e.x, y + e.h - 5, 4, 3, 0, 0, Math.PI * 2); c.fill();
+    // Taillight (bottom, facing player)
     c.fillStyle = '#ff2200';
-    c.fillRect(e.x - 2, y + 1, 4, 2);
+    c.fillRect(e.x - 2, y + e.h - 3, 4, 2);
+
+  } else if (e.type === 3) {
+    // POLICE CAR
+    c.fillStyle = '#1a1a2e';
+    drawRoundRect(c, x, y, e.w, e.h, 4);
+    c.fill();
+    c.fillStyle = '#111122';
+    drawRoundRect(c, x + 3, y + e.h * 0.3, e.w - 6, e.h * 0.25, 3);
+    c.fill();
+    // White side stripe
+    c.fillStyle = 'rgba(255,255,255,0.5)';
+    c.fillRect(x + 1, y + e.h * 0.45, e.w - 2, 2);
+    // Light bar (red/blue)
+    c.fillStyle = '#ff2244';
+    c.fillRect(x + 3, y + e.h * 0.26, 5, 3);
+    c.fillStyle = '#2244ff';
+    c.fillRect(x + e.w - 8, y + e.h * 0.26, 5, 3);
+    // Windshield
+    c.fillStyle = 'rgba(100,130,170,0.6)';
+    c.beginPath();
+    c.moveTo(x + 5, y + e.h * 0.2);
+    c.lineTo(x + e.w - 5, y + e.h * 0.2);
+    c.lineTo(x + e.w - 7, y + e.h * 0.32);
+    c.lineTo(x + 7, y + e.h * 0.32);
+    c.closePath(); c.fill();
+    // Headlights (top)
+    c.fillStyle = '#ddddff';
+    c.fillRect(x + 3, y + 1, 5, 2.5);
+    c.fillRect(x + e.w - 8, y + 1, 5, 2.5);
+    // Taillights (bottom)
+    c.fillStyle = '#ff2222';
+    c.fillRect(x + 3, y + e.h - 3, 5, 2.5);
+    c.fillRect(x + e.w - 8, y + e.h - 3, 5, 2.5);
+    // Wheels
+    for (const [wx, wy] of [[x + 1, y + 5], [x + e.w - 7, y + 5], [x + 1, y + e.h - 10], [x + e.w - 7, y + e.h - 10]]) {
+      c.fillStyle = '#111'; c.beginPath(); c.ellipse(wx + 3, wy + 2.5, 3, 2, 0, 0, Math.PI * 2); c.fill();
+    }
+
+  } else if (e.type === 4) {
+    // TRUCK
+    c.fillStyle = '#cc6622';
+    drawRoundRect(c, x, y, e.w, e.h, 3);
+    c.fill();
+    // Cargo area
+    c.fillStyle = '#aa5518';
+    c.fillRect(x + 2, y + 2, e.w - 4, e.h * 0.55);
+    // Cargo lines
+    c.strokeStyle = '#884411'; c.lineWidth = 0.6;
+    for (let ly = 0.1; ly < 0.5; ly += 0.12) {
+      c.beginPath(); c.moveTo(x + 3, y + e.h * ly); c.lineTo(x + e.w - 3, y + e.h * ly); c.stroke();
+    }
+    // Cab
+    c.fillStyle = '#dd7728';
+    drawRoundRect(c, x + 1, y + e.h * 0.58, e.w - 2, e.h * 0.35, 3);
+    c.fill();
+    // Cab window
+    c.fillStyle = 'rgba(100,150,180,0.5)';
+    c.fillRect(x + 4, y + e.h * 0.6, e.w - 8, e.h * 0.12);
+    // Headlights (top)
+    c.fillStyle = '#ffffaa';
+    c.fillRect(x + 2, y + 1, 6, 2.5);
+    c.fillRect(x + e.w - 8, y + 1, 6, 2.5);
+    // Taillights (bottom)
+    c.fillStyle = '#ff3322';
+    c.fillRect(x + 2, y + e.h - 3, e.w - 4, 3);
+    // Wheels
+    for (const [wx, wy] of [[x, y + 6], [x + e.w - 8, y + 6], [x, y + e.h - 12], [x + e.w - 8, y + e.h - 12]]) {
+      c.fillStyle = '#111'; c.beginPath(); c.ellipse(wx + 4, wy + 3, 4, 3, 0, 0, Math.PI * 2); c.fill();
+    }
+
+  } else if (e.type === 5) {
+    // TAXI (yellow)
+    c.fillStyle = '#ddbb22';
+    drawRoundRect(c, x, y, e.w, e.h, 4);
+    c.fill();
+    c.fillStyle = '#ccaa11';
+    drawRoundRect(c, x + 3, y + e.h * 0.3, e.w - 6, e.h * 0.28, 3);
+    c.fill();
+    // Taxi sign on roof
+    c.fillStyle = '#ffee66';
+    c.fillRect(x + e.w / 2 - 5, y + e.h * 0.28, 10, 4);
+    c.fillStyle = '#222';
+    c.font = '3px monospace'; c.textAlign = 'center';
+    c.fillText('TAXI', x + e.w / 2, y + e.h * 0.28 + 3.2);
+    // Windshield
+    c.fillStyle = 'rgba(90,140,180,0.6)';
+    c.beginPath();
+    c.moveTo(x + 5, y + e.h * 0.2);
+    c.lineTo(x + e.w - 5, y + e.h * 0.2);
+    c.lineTo(x + e.w - 7, y + e.h * 0.32);
+    c.lineTo(x + 7, y + e.h * 0.32);
+    c.closePath(); c.fill();
+    // Checker stripe
+    c.fillStyle = '#222';
+    for (let cx = x + 2; cx < x + e.w - 2; cx += 6) {
+      c.fillRect(cx, y + e.h * 0.52, 3, 2);
+    }
+    // Headlights (top)
+    c.fillStyle = '#ffffcc';
+    c.fillRect(x + 3, y + 1, 5, 2.5);
+    c.fillRect(x + e.w - 8, y + 1, 5, 2.5);
+    // Taillights (bottom)
+    c.fillStyle = '#ff2222';
+    c.fillRect(x + 3, y + e.h - 3, 5, 2.5);
+    c.fillRect(x + e.w - 8, y + e.h - 3, 5, 2.5);
+    // Wheels
+    for (const [wx, wy] of [[x + 1, y + 5], [x + e.w - 7, y + 5], [x + 1, y + e.h - 10], [x + e.w - 7, y + e.h - 10]]) {
+      c.fillStyle = '#111'; c.beginPath(); c.ellipse(wx + 3, wy + 2.5, 3, 2, 0, 0, Math.PI * 2); c.fill();
+    }
+
+  } else {
+    // SUV
+    c.fillStyle = '#556b7a';
+    drawRoundRect(c, x, y, e.w, e.h, 4);
+    c.fill();
+    c.fillStyle = '#4a5f6e';
+    c.fillRect(x + 2, y + e.h * 0.12, e.w - 4, e.h * 0.5);
+    // Roof rails
+    c.strokeStyle = '#8899aa'; c.lineWidth = 0.8;
+    c.beginPath(); c.moveTo(x + 2, y + e.h * 0.15); c.lineTo(x + 2, y + e.h * 0.55); c.stroke();
+    c.beginPath(); c.moveTo(x + e.w - 2, y + e.h * 0.15); c.lineTo(x + e.w - 2, y + e.h * 0.55); c.stroke();
+    // Windows
+    c.fillStyle = 'rgba(80,130,160,0.5)';
+    c.fillRect(x + 4, y + e.h * 0.18, e.w - 8, e.h * 0.14);
+    c.fillRect(x + 4, y + e.h * 0.36, e.w - 8, e.h * 0.12);
+    // Headlights (top)
+    c.fillStyle = '#ddeeff';
+    c.fillRect(x + 2, y + 1, 6, 2.5);
+    c.fillRect(x + e.w - 8, y + 1, 6, 2.5);
+    // Taillights (bottom)
+    c.fillStyle = '#ff3333';
+    c.fillRect(x + 2, y + e.h - 3, 6, 3);
+    c.fillRect(x + e.w - 8, y + e.h - 3, 6, 3);
+    // Wheels (bigger)
+    for (const [wx, wy] of [[x, y + 6], [x + e.w - 8, y + 6], [x, y + e.h - 12], [x + e.w - 8, y + e.h - 12]]) {
+      c.fillStyle = '#111'; c.beginPath(); c.ellipse(wx + 4, wy + 3, 4, 3, 0, 0, Math.PI * 2); c.fill();
+      c.fillStyle = '#444'; c.beginPath(); c.ellipse(wx + 4, wy + 3, 2.5, 1.8, 0, 0, Math.PI * 2); c.fill();
+    }
   }
 }
 
@@ -1342,6 +1442,27 @@ function drawHUD(c) {
     c.fillRect(0, 0, W, H);
     c.restore();
   }
+
+  // Mobile touch buttons
+  if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
+    const btns = getTouchBtnRects();
+    const drawBtn = (r, icon, active) => {
+      c.fillStyle = active ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.1)';
+      c.beginPath();
+      c.arc(r.x + r.w / 2, r.y + r.h / 2, r.w / 2, 0, Math.PI * 2);
+      c.fill();
+      c.strokeStyle = 'rgba(255,255,255,0.3)';
+      c.lineWidth = 2;
+      c.stroke();
+      c.fillStyle = active ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.5)';
+      c.font = 'bold 22px sans-serif';
+      c.textAlign = 'center';
+      c.textBaseline = 'middle';
+      c.fillText(icon, r.x + r.w / 2, r.y + r.h / 2);
+    };
+    drawBtn(btns.left, '\u25C0', touchBtnLeft);
+    drawBtn(btns.right, '\u25B6', touchBtnRight);
+  }
 }
 
 // ═══════════ DRAW START SCREEN ═══════════
@@ -1411,6 +1532,81 @@ function drawStartScreen(c) {
     c.font = '11px monospace';
     c.fillStyle = '#888877';
     c.fillText('BEST: ' + bestScore, mid, ty + 130);
+  }
+
+  // "?" button — top right
+  faqBtnRect.x = W - 50;
+  faqBtnRect.y = 14;
+  c.fillStyle = 'rgba(255,255,255,0.15)';
+  c.beginPath();
+  c.arc(faqBtnRect.x + 18, faqBtnRect.y + 18, 18, 0, Math.PI * 2);
+  c.fill();
+  c.strokeStyle = 'rgba(255,255,255,0.35)';
+  c.lineWidth = 1.5;
+  c.stroke();
+  c.fillStyle = 'rgba(255,255,255,0.7)';
+  c.font = 'bold 18px sans-serif';
+  c.textAlign = 'center';
+  c.textBaseline = 'middle';
+  c.fillText('?', faqBtnRect.x + 18, faqBtnRect.y + 18);
+
+  // FAQ overlay
+  if (showFaq) {
+    c.fillStyle = 'rgba(0,0,0,0.85)';
+    c.fillRect(0, 0, W, H);
+
+    c.textAlign = 'center';
+    c.font = 'bold 22px monospace';
+    c.fillStyle = '#ffffff';
+    c.fillText('HOW TO PLAY', mid, H * 0.12);
+
+    c.font = '13px monospace';
+    c.fillStyle = '#ccccaa';
+    const lines = [
+      '',
+      '\u2190 \u2192  or  A / D',
+      'Change lanes',
+      '',
+      'SPACE',
+      'Activate Nitro boost',
+      '',
+      '\u2500\u2500\u2500 MOBILE \u2500\u2500\u2500',
+      '',
+      '\u25C0  \u25B6  buttons',
+      'Change lanes',
+      '',
+      'Double tap screen',
+      'Activate Nitro boost',
+      '',
+      'P',
+      'Pause game',
+      '',
+      '\u2500\u2500\u2500 TIPS \u2500\u2500\u2500',
+      '',
+      'Dodge traffic to survive',
+      'Biomes change every 45s',
+      'Speed increases each biome',
+      'Near miss = +50 bonus',
+    ];
+    let ly = H * 0.18;
+    for (const line of lines) {
+      if (line.includes('\u2500')) {
+        c.fillStyle = '#887766';
+        c.font = '11px monospace';
+      } else if (line === 'Change lanes' || line === 'Activate Nitro boost' || line === 'Pause game' || line.startsWith('Dodge') || line.startsWith('Biomes') || line.startsWith('Speed') || line.startsWith('Near')) {
+        c.fillStyle = '#999988';
+        c.font = '11px monospace';
+      } else {
+        c.fillStyle = '#ffddaa';
+        c.font = 'bold 14px monospace';
+      }
+      c.fillText(line, mid, ly);
+      ly += 20;
+    }
+
+    c.font = '12px monospace';
+    c.fillStyle = 'rgba(255,255,255,0.4)';
+    c.fillText('Tap anywhere to close', mid, H - 40);
   }
 }
 
@@ -1519,6 +1715,49 @@ function render() {
 
   // Draw player
   drawPlayerCar(ctx, player.x, player.y);
+
+  // Biome warning road sign
+  if (biomeWarningSign.show && gameState === STATE.PLAYING) {
+    const sy = biomeWarningSign.y;
+    const sx = ROAD_R + 12;
+    const toForest = currentBiome === BIOME.DESERT;
+    ctx.save();
+    ctx.globalAlpha = biomeWarningSign.alpha;
+    // Post
+    ctx.fillStyle = '#888';
+    ctx.fillRect(sx + 2, sy, 4, 40);
+    // Sign panel
+    const panelColor = toForest ? '#2a6b2a' : '#cc8833';
+    ctx.fillStyle = panelColor;
+    drawRoundRect(ctx, sx - 14, sy - 32, 38, 34, 4);
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.5;
+    drawRoundRect(ctx, sx - 12, sy - 30, 34, 30, 3);
+    ctx.stroke();
+    // Icon + text
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 9px sans-serif';
+    ctx.textAlign = 'center';
+    if (toForest) {
+      // Tree icon
+      ctx.fillStyle = '#4a3a2a';
+      ctx.fillRect(sx + 3, sy - 10, 3, 8);
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(sx + 4.5, sy - 14, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillText('FOREST', sx + 5, sy - 20);
+    } else {
+      // Cactus icon
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(sx + 2, sy - 18, 4, 14);
+      ctx.fillRect(sx - 2, sy - 12, 4, 3);
+      ctx.fillRect(sx + 6, sy - 10, 4, 3);
+      ctx.fillText('DESERT', sx + 5, sy - 22);
+    }
+    ctx.restore();
+  }
 
   // Nitro visual effect
   if (nitroActive) {

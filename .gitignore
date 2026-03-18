@@ -1,0 +1,8 @@
+node_modules/
+.env*
+.next/
+*.tsbuildinfo
+.DS_Store
+baseapp/contracts/out/
+baseapp/contracts/cache/
+baseapp/contracts/lib/
