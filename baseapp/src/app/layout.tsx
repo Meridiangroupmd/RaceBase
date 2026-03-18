@@ -16,6 +16,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "RaceBase",
   description: "Race to survive on Base",
+  other: {
+    "base:app_id": "69bb13c4147765ec21407738",
+  },
 };
 
 export default function RootLayout({
