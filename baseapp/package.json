@@ -11,6 +11,7 @@
   "dependencies": {
     "@base-org/account": "^2.5.2",
     "@base-org/account-ui": "^1.0.1",
+    "@farcaster/frame-sdk": "^0.1.14",
     "@privy-io/chains": "^0.1.2",
     "@privy-io/react-auth": "^3.17.0",
     "@tanstack/react-query": "^5.91.0",
