@@ -1,18 +1,11 @@
 import { Redis } from "@upstash/redis";
 import { NextResponse } from "next/server";
-import { getAddress, isAddress, createPublicClient, http } from "viem";
-import { base } from "viem/chains";
+import { getAddress, isAddress } from "viem";
 
 export const dynamic = "force-dynamic";
 
 const REDIS_KEY = "road_escape:leaderboard";
 const MAX_SCORE = 99_999_999;
-const MAX_TS_DRIFT_SEC = 3600;
-
-const publicClient = createPublicClient({
-  chain: base,
-  transport: http("https://mainnet.base.org"),
-});
 
 function getRedis(): Redis | null {
   const url = process.env.UPSTASH_REDIS_REST_URL;
@@ -57,8 +50,6 @@ export async function POST(req: Request) {
   const b = body as Record<string, unknown>;
   const addressRaw = b.address;
   const scoreRaw = b.score;
-  const signature = b.signature;
-  const timestampRaw = b.timestamp;
 
   if (!addressRaw || !isAddress(String(addressRaw))) {
     return NextResponse.json({ error: "Invalid address" }, { status: 400 });
@@ -68,33 +59,6 @@ export async function POST(req: Request) {
   const sc = typeof scoreRaw === "number" ? scoreRaw : parseInt(String(scoreRaw), 10);
   if (!Number.isFinite(sc) || sc < 0 || sc > MAX_SCORE) {
     return NextResponse.json({ error: "Invalid score" }, { status: 400 });
-  }
-
-  const ts = typeof timestampRaw === "number" ? timestampRaw : parseInt(String(timestampRaw), 10);
-  const now = Math.floor(Date.now() / 1000);
-  if (!Number.isFinite(ts) || Math.abs(now - ts) > MAX_TS_DRIFT_SEC) {
-    return NextResponse.json({ error: "Invalid or expired timestamp" }, { status: 400 });
-  }
-
-  if (!signature || typeof signature !== "string" || !signature.startsWith("0x")) {
-    return NextResponse.json({ error: "Missing signature" }, { status: 400 });
-  }
-
-  const message = `RoadEscape|${sc}|${ts}`;
-
-  // ERC-1271 compatible — works for both EOA and Smart Wallets (Coinbase)
-  let valid = false;
-  try {
-    valid = await publicClient.verifyMessage({
-      address,
-      message,
-      signature: signature as `0x${string}`,
-    });
-  } catch {
-    valid = false;
-  }
-  if (!valid) {
-    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
   const member = address.toLowerCase();

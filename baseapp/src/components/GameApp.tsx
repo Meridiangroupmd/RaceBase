@@ -454,47 +454,30 @@ function MainScreen({ address }: { address: string }) {
     if (submittedRef.current) return;
     const raw = localStorage.getItem("roadEscape_pendingScore");
     if (!raw) return;
-    let pending: { score: number; ts: number };
+    let pending: { score: number };
     try { pending = JSON.parse(raw); } catch { return; }
     if (!pending.score || pending.score <= 0) return;
     submittedRef.current = true;
-    setScoreStatus(`Submitting score ${pending.score}…`);
-
-    const wallet = wallets.find(w => w.address?.toLowerCase() === address.toLowerCase()) ?? wallets[0];
-    if (!wallet) {
-      submittedRef.current = false;
-      setScoreStatus("No wallet found");
-      setTimeout(() => setScoreStatus(""), 3000);
-      return;
-    }
 
     try {
-      const provider = await wallet.getEthereumProvider();
-      const message = `RoadEscape|${pending.score}|${pending.ts}`;
-      const hexMsg = ("0x" + Array.from(new TextEncoder().encode(message)).map(b => b.toString(16).padStart(2, "0")).join("")) as Hex;
-      const sig: string = await provider.request({
-        method: "personal_sign",
-        params: [hexMsg, address],
-      });
       const res = await fetch("/api/leaderboard", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address, score: pending.score, signature: sig, timestamp: pending.ts }),
+        body: JSON.stringify({ address, score: pending.score }),
       });
       const json = await res.json();
       if (json.ok) {
         localStorage.removeItem("roadEscape_pendingScore");
         setScoreStatus(`Score ${pending.score} saved!`);
       } else {
-        setScoreStatus(json.error || "Failed to save score");
+        setScoreStatus(json.error || "Failed to save");
+        submittedRef.current = false;
       }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Signing failed";
-      setScoreStatus(msg.length > 40 ? msg.slice(0, 40) + "…" : msg);
+    } catch {
       submittedRef.current = false;
     }
-    setTimeout(() => setScoreStatus(""), 4000);
-  }, [address, wallets]);
+    setTimeout(() => setScoreStatus(""), 3000);
+  }, [address]);
 
   useEffect(() => {
     submitPendingScore();
