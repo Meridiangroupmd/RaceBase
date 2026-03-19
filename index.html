@@ -74,13 +74,6 @@ let enemyTypePool = [0, 1, 2, 3, 4, 5, 6];
 let pauseAlpha = 0;
 let showFaq = false;
 const faqBtnRect = { x: 0, y: 0, w: 36, h: 36 };
-let showLeaderboard = false;
-const lbBtnRect = { x: 14, y: 14, w: 80, h: 36 };
-let gameOverLbRect = { x: 0, y: 0, w: 0, h: 0 };
-let leaderboardEntries = [];
-let leaderboardConfigured = false;
-let leaderboardLoading = false;
-let leaderboardHint = '';
 let menuScroll = 0;
 let fpsCounter = 0, fpsDisplay = 0, fpsTime = 0;
 
@@ -572,7 +565,6 @@ window.addEventListener('keydown', e => {
   initAudio();
   keys[e.code] = true;
   if (e.code === 'Enter') {
-    if (showLeaderboard) { showLeaderboard = false; return; }
     if (gameState === STATE.MENU) startGame();
     else if (gameState === STATE.GAMEOVER) startGame();
   }
@@ -596,67 +588,15 @@ function getTouchBtnRects() {
 
 function hitTest(tx, ty, r) { return tx >= r.x && tx <= r.x + r.w && ty >= r.y && ty <= r.y + r.h; }
 
-function openLeaderboard() {
-  showLeaderboard = true;
-  fetchLeaderboard();
-}
-
-function utf8ToHex(str) {
-  const bytes = new TextEncoder().encode(str);
-  let hex = '0x';
-  for (let i = 0; i < bytes.length; i++) hex += bytes[i].toString(16).padStart(2, '0');
-  return hex;
-}
-
-function shortenAddr(a) {
-  if (!a || a.length < 12) return a || '—';
-  return a.slice(0, 6) + '…' + a.slice(-4);
-}
-
-async function fetchLeaderboard() {
-  leaderboardLoading = true;
-  leaderboardHint = '';
-  try {
-    const r = await fetch('/api/leaderboard', { cache: 'no-store' });
-    const j = await r.json();
-    leaderboardEntries = Array.isArray(j.entries) ? j.entries : [];
-    leaderboardConfigured = !!j.configured;
-    if (!leaderboardConfigured) {
-      leaderboardHint = 'Server storage not set (Upstash Redis). See LEADERBOARD.md';
-    }
-  } catch (err) {
-    leaderboardEntries = [];
-    leaderboardHint = 'Could not load (need same host as app / network)';
-  }
-  leaderboardLoading = false;
-}
-
-async function submitLeaderboardScore(finalScore) {
-  const eth = window.ethereum;
-  if (!eth || finalScore <= 0) return;
-  try {
-    const acc = await eth.request({ method: 'eth_requestAccounts' });
-    const from = acc && acc[0];
-    if (!from) return;
-    const ts = Math.floor(Date.now() / 1000);
-    const message = 'RoadEscape|' + finalScore + '|' + ts;
-    const hexMsg = utf8ToHex(message);
-    const sig = await eth.request({
-      method: 'personal_sign',
-      params: [hexMsg, from],
-    });
-    await fetch('/api/leaderboard', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        address: from,
-        score: finalScore,
-        signature: sig,
-        timestamp: ts,
-      }),
-    });
-  } catch (e) {
-    /* отказ от подписи или нет провайдера */
+function savePendingScore(finalScore) {
+  if (finalScore <= 0) return;
+  const prev = localStorage.getItem('roadEscape_pendingScore');
+  const prevScore = prev ? JSON.parse(prev).score : 0;
+  if (finalScore > prevScore) {
+    localStorage.setItem('roadEscape_pendingScore', JSON.stringify({
+      score: finalScore,
+      ts: Math.floor(Date.now() / 1000),
+    }));
   }
 }
 
@@ -667,16 +607,13 @@ canvas.addEventListener('touchstart', e => {
   const tx = t0.clientX, ty = t0.clientY;
 
   if (showFaq) { showFaq = false; return; }
-  if (showLeaderboard) { showLeaderboard = false; return; }
 
   if (gameState === STATE.MENU) {
-    if (hitTest(tx, ty, lbBtnRect)) { openLeaderboard(); return; }
     if (hitTest(tx, ty, faqBtnRect)) { showFaq = true; return; }
     startGame();
     return;
   }
   if (gameState === STATE.GAMEOVER) {
-    if (hitTest(tx, ty, gameOverLbRect)) { openLeaderboard(); return; }
     startGame();
     return;
   }
@@ -704,15 +641,12 @@ canvas.addEventListener('click', (ev) => {
   initAudio();
   const cx = ev.clientX, cy = ev.clientY;
   if (showFaq) { showFaq = false; return; }
-  if (showLeaderboard) { showLeaderboard = false; return; }
   if (gameState === STATE.MENU) {
-    if (hitTest(cx, cy, lbBtnRect)) { openLeaderboard(); return; }
     if (hitTest(cx, cy, faqBtnRect)) { showFaq = true; return; }
     startGame();
     return;
   }
   if (gameState === STATE.GAMEOVER) {
-    if (hitTest(cx, cy, gameOverLbRect)) { openLeaderboard(); return; }
     startGame();
   }
 });
@@ -777,7 +711,7 @@ function hitPlayer() {
   if (lives <= 0) {
     gameState = STATE.GAMEOVER;
     if (score > bestScore) { bestScore = score; localStorage.setItem('roadEscapeBest', bestScore); }
-    submitLeaderboardScore(score);
+    savePendingScore(score);
   }
 }
 
@@ -1766,74 +1700,6 @@ function drawHUD(c) {
   }
 }
 
-// ═══════════ LEADERBOARD OVERLAY ═══════════
-function drawLeaderboardOverlay(c) {
-  c.fillStyle = 'rgba(0,0,0,0.9)';
-  c.fillRect(0, 0, W, H);
-  c.textAlign = 'center';
-  c.font = 'bold 22px monospace';
-  c.fillStyle = '#ffffff';
-  c.fillText('TOP PLAYERS', W / 2, H * 0.07);
-
-  if (leaderboardLoading) {
-    c.font = '14px monospace';
-    c.fillStyle = '#aaaaaa';
-    c.fillText('Loading…', W / 2, H * 0.45);
-    c.font = '12px monospace';
-    c.fillStyle = 'rgba(255,255,255,0.45)';
-    c.fillText('Tap to close', W / 2, H - 36);
-    return;
-  }
-
-  if (leaderboardHint) {
-    c.font = '11px monospace';
-    c.fillStyle = '#aa8866';
-    const words = leaderboardHint.split(' ');
-    let line = '', ly = H * 0.12;
-    const maxW = W - 40;
-    for (let i = 0; i < words.length; i++) {
-      const test = line ? line + ' ' + words[i] : words[i];
-      if (c.measureText(test).width > maxW && line) {
-        c.fillText(line, W / 2, ly);
-        ly += 16;
-        line = words[i];
-      } else {
-        line = test;
-      }
-    }
-    if (line) c.fillText(line, W / 2, ly);
-  }
-
-  let rowY = H * 0.22;
-  c.textAlign = 'left';
-  for (const row of leaderboardEntries.slice(0, 20)) {
-    const rank = row.rank;
-    const gold = rank === 1 ? '#ffd700' : rank === 2 ? '#c8c8c8' : rank === 3 ? '#cd7f32' : '#aaaaff';
-    c.font = 'bold 15px monospace';
-    c.fillStyle = gold;
-    c.fillText('#' + rank, W * 0.08, rowY);
-    c.fillStyle = '#ddddcc';
-    c.fillText(shortenAddr(row.address), W * 0.18, rowY);
-    c.textAlign = 'right';
-    c.fillStyle = '#ffffff';
-    c.fillText(String(row.score), W * 0.92, rowY);
-    c.textAlign = 'left';
-    rowY += 28;
-  }
-
-  if (leaderboardEntries.length === 0 && !leaderboardHint) {
-    c.textAlign = 'center';
-    c.font = '13px monospace';
-    c.fillStyle = '#888877';
-    c.fillText('No scores yet — be the first!', W / 2, H * 0.45);
-  }
-
-  c.textAlign = 'center';
-  c.font = '12px monospace';
-  c.fillStyle = 'rgba(255,255,255,0.45)';
-  c.fillText('Tap to close', W / 2, H - 36);
-}
-
 // ═══════════ DRAW START SCREEN ═══════════
 function drawStartScreen(c) {
   const mid = W / 2;
@@ -1903,19 +1769,6 @@ function drawStartScreen(c) {
     c.fillText('BEST: ' + bestScore, mid, ty + 130);
   }
 
-  // TOP — leaderboard (top left)
-  c.textAlign = 'center';
-  c.textBaseline = 'middle';
-  c.fillStyle = 'rgba(255,190,70,0.22)';
-  c.fillRect(lbBtnRect.x, lbBtnRect.y, lbBtnRect.w, lbBtnRect.h);
-  c.strokeStyle = 'rgba(255,210,120,0.55)';
-  c.lineWidth = 1.5;
-  c.strokeRect(lbBtnRect.x, lbBtnRect.y, lbBtnRect.w, lbBtnRect.h);
-  c.fillStyle = '#ffdd88';
-  c.font = 'bold 14px monospace';
-  c.fillText('TOP', lbBtnRect.x + lbBtnRect.w / 2, lbBtnRect.y + lbBtnRect.h / 2);
-  c.textBaseline = 'alphabetic';
-
   // "?" button — top right
   faqBtnRect.x = W - 50;
   faqBtnRect.y = 14;
@@ -1969,11 +1822,6 @@ function drawStartScreen(c) {
       'Biomes change every 45s',
       'Speed increases each biome',
       'Near miss = +50 bonus',
-      '',
-      '\u2500\u2500\u2500 LEADERBOARD \u2500\u2500\u2500',
-      '',
-      'TOP',
-      'Best players (sign with wallet)',
     ];
     let ly = H * 0.18;
     for (const line of lines) {
@@ -2019,12 +1867,6 @@ function drawGameOver(c) {
     c.fillStyle = '#ffffff';
     c.fillText('PRESS ENTER TO RESTART', W / 2, H * 0.67);
   }
-
-  const lbY = H * 0.74;
-  c.font = 'bold 13px monospace';
-  c.fillStyle = '#88ccff';
-  c.fillText('VIEW LEADERBOARD', W / 2, lbY);
-  gameOverLbRect = { x: W / 2 - 115, y: lbY - 18, w: 230, h: 36 };
 }
 
 // ═══════════ DRAW PAUSE ═══════════
@@ -2046,7 +1888,6 @@ function render() {
 
   if (gameState === STATE.MENU) {
     drawStartScreen(ctx);
-    if (showLeaderboard) drawLeaderboardOverlay(ctx);
     return;
   }
 
@@ -2182,7 +2023,6 @@ function render() {
 
   if (gameState === STATE.PAUSED) drawPause(ctx);
   if (gameState === STATE.GAMEOVER) drawGameOver(ctx);
-  if (showLeaderboard) drawLeaderboardOverlay(ctx);
 }
 
 // ═══════════ GAME LOOP ═══════════

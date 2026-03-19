@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { encodeFunctionData, createPublicClient, http, type Hex } from "viem";
 import { base } from "viem/chains";
 import { CarIcon } from "./CarIcon";
 import { RACEBASE_ADDRESS, raceBaseAbi } from "@/config/contract";
+
+type LBEntry = { rank: number; address: string; score: number };
 
 const BUILDER_CODE_SUFFIX = "0x62635f6c347977356c376d0b0080218021802180218021802180218021" as Hex;
 const PAYMASTER_URL = "https://api.developer.coinbase.com/rpc/v1/base/OPj0vhkXuMRNsVxHcgZRF0WGjlR7FV26";
@@ -406,6 +408,11 @@ function MainScreen({ address }: { address: string }) {
   const [loading, setLoading] = useState("");
   const [txStatus, setTxStatus] = useState("");
 
+  const [showLB, setShowLB] = useState(false);
+  const [lbEntries, setLbEntries] = useState<LBEntry[]>([]);
+  const [lbLoading, setLbLoading] = useState(false);
+  const submittedRef = useRef(false);
+
   const fetchPlayerData = useCallback(async () => {
     try {
       const [player, canCheckIn] = await Promise.all([
@@ -428,6 +435,52 @@ function MainScreen({ address }: { address: string }) {
   }, [address]);
 
   useEffect(() => { fetchPlayerData(); }, [fetchPlayerData]);
+
+  const fetchLB = useCallback(async () => {
+    setLbLoading(true);
+    try {
+      const r = await fetch("/api/leaderboard", { cache: "no-store" });
+      const j = await r.json();
+      setLbEntries(Array.isArray(j.entries) ? j.entries : []);
+    } catch {
+      setLbEntries([]);
+    }
+    setLbLoading(false);
+  }, []);
+
+  const submitPendingScore = useCallback(async () => {
+    if (submittedRef.current) return;
+    const raw = localStorage.getItem("roadEscape_pendingScore");
+    if (!raw) return;
+    const pending = JSON.parse(raw) as { score: number; ts: number };
+    if (!pending.score || pending.score <= 0) return;
+    submittedRef.current = true;
+
+    const wallet = wallets.find(w => w.address?.toLowerCase() === address.toLowerCase()) ?? wallets[0];
+    if (!wallet) { submittedRef.current = false; return; }
+
+    try {
+      const provider = await wallet.getEthereumProvider();
+      const message = `RoadEscape|${pending.score}|${pending.ts}`;
+      const hexMsg = ("0x" + Array.from(new TextEncoder().encode(message)).map(b => b.toString(16).padStart(2, "0")).join("")) as Hex;
+      const sig = await provider.request({
+        method: "personal_sign",
+        params: [hexMsg, address],
+      });
+      await fetch("/api/leaderboard", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address, score: pending.score, signature: sig, timestamp: pending.ts }),
+      });
+      localStorage.removeItem("roadEscape_pendingScore");
+    } catch {
+      submittedRef.current = false;
+    }
+  }, [address, wallets]);
+
+  useEffect(() => {
+    submitPendingScore();
+  }, [submitPendingScore]);
 
   const sendTx = async (functionName: "checkIn" | "race") => {
     const wallet = wallets.find(w => w.address?.toLowerCase() === address.toLowerCase()) ?? wallets[0];
@@ -573,6 +626,53 @@ function MainScreen({ address }: { address: string }) {
           </div>
         ))}
       </div>
+
+      {/* Leaderboard button */}
+      <button
+        onClick={() => { setShowLB(true); fetchLB(); }}
+        className="relative z-10 mt-5 w-full max-w-sm rounded-2xl border border-yellow-500/30 bg-yellow-400/10 py-3.5 text-center text-sm font-bold text-yellow-300 transition-all hover:bg-yellow-400/20 active:scale-[0.97]"
+      >
+        TOP Players
+      </button>
+
+      {/* Leaderboard modal */}
+      {showLB && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 px-4" onClick={() => setShowLB(false)}>
+          <div className="w-full max-w-sm rounded-2xl border border-zinc-700 bg-zinc-900 p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-white">Top Players</h2>
+              <button onClick={() => setShowLB(false)} className="text-zinc-500 hover:text-white text-xl leading-none">&times;</button>
+            </div>
+
+            {lbLoading ? (
+              <div className="flex justify-center py-10">
+                <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/20 border-t-white/80" />
+              </div>
+            ) : lbEntries.length === 0 ? (
+              <p className="py-10 text-center text-sm text-zinc-500">No scores yet</p>
+            ) : (
+              <div className="mt-4 max-h-[55vh] overflow-y-auto">
+                {lbEntries.slice(0, 30).map((e) => {
+                  const medal = e.rank === 1 ? "text-yellow-400" : e.rank === 2 ? "text-zinc-300" : e.rank === 3 ? "text-amber-600" : "text-zinc-500";
+                  const isMe = e.address.toLowerCase() === address.toLowerCase();
+                  return (
+                    <div key={e.rank} className={`flex items-center justify-between py-2 px-1 ${isMe ? "bg-yellow-400/10 rounded-lg" : ""}`}>
+                      <div className="flex items-center gap-3">
+                        <span className={`w-7 text-right font-mono text-sm font-bold ${medal}`}>#{e.rank}</span>
+                        <span className={`font-mono text-sm ${isMe ? "text-yellow-300" : "text-zinc-300"}`}>
+                          {e.address.slice(0, 6)}…{e.address.slice(-4)}
+                          {isMe && <span className="ml-1 text-[10px] text-yellow-400">(you)</span>}
+                        </span>
+                      </div>
+                      <span className="font-mono text-sm font-bold text-white">{e.score.toLocaleString()}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
