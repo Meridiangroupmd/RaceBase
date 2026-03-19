@@ -280,8 +280,23 @@ function initAudio() {
   audioStarted = true;
 
   musicGain = audioCtx.createGain();
-  musicGain.gain.value = 0.07;
+  musicGain.gain.value = 0.15;
   musicGain.connect(audioCtx.destination);
+
+  // Background pad — constant warm chord drone
+  const padNotes = [65.41, 82.41, 98.00]; // C2, E2, G2
+  padNotes.forEach(freq => {
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    const f = audioCtx.createBiquadFilter();
+    o.type = 'sine';
+    o.frequency.value = freq;
+    g.gain.value = 0.02;
+    f.type = 'lowpass';
+    f.frequency.value = 150;
+    o.connect(f).connect(g).connect(audioCtx.destination);
+    o.start();
+  });
 
   // Dummy refs for compatibility
   engineOsc = { frequency: { value: 0 } };
@@ -302,7 +317,7 @@ function playSound(type) {
     f.type = 'lowpass'; f.frequency.value = 400;
     o.type = 'sine'; o.frequency.setValueAtTime(100, now);
     o.frequency.exponentialRampToValueAtTime(40, now + 0.25);
-    g.gain.setValueAtTime(0.15, now);
+    g.gain.setValueAtTime(0.08, now);
     g.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
     o.connect(f).connect(g).connect(audioCtx.destination);
     o.start(now); o.stop(now + 0.3);
@@ -349,38 +364,58 @@ function playMusicNote(freq, duration) {
   if (!audioCtx || !musicGain) return;
   const now = audioCtx.currentTime;
 
-  // Lead — clean sine
+  // Lead — square wave, retro feel
   const lead = audioCtx.createOscillator();
   const lg = audioCtx.createGain();
-  lead.type = 'sine';
+  lead.type = 'square';
   lead.frequency.value = freq;
-  lg.gain.setValueAtTime(0.07, now);
-  lg.gain.exponentialRampToValueAtTime(0.001, now + duration * 0.9);
-  lead.connect(lg).connect(musicGain);
+  lg.gain.setValueAtTime(0.12, now);
+  lg.gain.setValueAtTime(0.1, now + 0.02);
+  lg.gain.exponentialRampToValueAtTime(0.001, now + duration * 0.85);
+  const lf = audioCtx.createBiquadFilter();
+  lf.type = 'lowpass'; lf.frequency.value = 1200;
+  lead.connect(lf).connect(lg).connect(musicGain);
   lead.start(now); lead.stop(now + duration);
 
-  // Harmony — octave below, triangle, quieter
+  // Harmony — fifth above, softer
   const harm = audioCtx.createOscillator();
   const hg = audioCtx.createGain();
   harm.type = 'triangle';
-  harm.frequency.value = freq / 2;
-  hg.gain.setValueAtTime(0.03, now);
-  hg.gain.exponentialRampToValueAtTime(0.001, now + duration * 0.85);
+  harm.frequency.value = freq * 1.5;
+  hg.gain.setValueAtTime(0.04, now);
+  hg.gain.exponentialRampToValueAtTime(0.001, now + duration * 0.7);
   harm.connect(hg).connect(musicGain);
   harm.start(now); harm.stop(now + duration);
 
-  // Bass pulse — every 4th note
-  if (musicStep % 4 === 0) {
+  // Bass — every 2nd note, punchy
+  if (musicStep % 2 === 0) {
     const bass = audioCtx.createOscillator();
     const bg = audioCtx.createGain();
     bass.type = 'sine';
-    bass.frequency.value = freq / 4;
-    bg.gain.setValueAtTime(0.04, now);
-    bg.gain.exponentialRampToValueAtTime(0.001, now + duration * 1.2);
+    bass.frequency.value = freq / 2;
+    bg.gain.setValueAtTime(0.08, now);
+    bg.gain.exponentialRampToValueAtTime(0.001, now + duration * 1.1);
     const bf = audioCtx.createBiquadFilter();
-    bf.type = 'lowpass'; bf.frequency.value = 200;
+    bf.type = 'lowpass'; bf.frequency.value = 250;
     bass.connect(bf).connect(bg).connect(musicGain);
-    bass.start(now); bass.stop(now + duration * 1.2);
+    bass.start(now); bass.stop(now + duration * 1.1);
+  }
+
+  // Percussion — every 4th note, noise hit
+  if (musicStep % 4 === 0) {
+    const bufLen = audioCtx.sampleRate * 0.05;
+    const buf = audioCtx.createBuffer(1, bufLen, audioCtx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < bufLen; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / bufLen);
+    const src = audioCtx.createBufferSource();
+    src.buffer = buf;
+    const pg = audioCtx.createGain();
+    pg.gain.setValueAtTime(0.06, now);
+    pg.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+    const pf = audioCtx.createBiquadFilter();
+    pf.type = 'highpass'; pf.frequency.value = 4000;
+    src.connect(pf).connect(pg).connect(musicGain);
+    src.start(now); src.stop(now + 0.08);
   }
 }
 
@@ -403,8 +438,7 @@ function updateAudio(dt) {
     musicTimer = beatDuration;
   }
 
-  // Volume
-  musicGain.gain.value = 0.07;
+  musicGain.gain.value = 0.15;
 }
 
 // ═══════════ INPUT ═══════════
