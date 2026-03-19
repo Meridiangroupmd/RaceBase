@@ -461,7 +461,8 @@ function MainScreen({ address }: { address: string }) {
 
       // Success — redirect or refresh
       if (functionName === "race") {
-        window.location.href = "/game.html";
+        // query string — обход CDN/браузерного кэша старого game.html
+        window.location.href = `/game.html?r=${Date.now()}`;
         return;
       }
       setTxStatus("Done!");

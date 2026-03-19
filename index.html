@@ -14,6 +14,7 @@ canvas{display:block;cursor:none}
 <canvas id="gc"></canvas>
 <script>
 "use strict";
+// build: audio-resume+tracks 2025-03-18 (если в DevTools не видишь эту строку — открыт старый кэш)
 // ═══════════════════════════════════════════
 //  ROAD ESCAPE — Complete Top-Down Racing Game
 // ═══════════════════════════════════════════
@@ -252,58 +253,151 @@ function spawnEnemy() {
 
 
 // ═══════════ AUDIO SYSTEM ═══════════
-let audioCtx = null, audioStarted = false;
+let audioCtx = null;
 let engineOsc, engineGain;
 let ambientDesertOsc, ambientDesertGain;
 let ambientForestOsc, ambientForestGain, ambientForestOsc2, ambientForestGain2;
 
-let musicGain, musicStarted = false;
-let musicStep = 0, musicTimer = 0;
+let musicGain;
+let musicSeqIndex = 0, musicTimer = 0;
+let musicSectionSlot = 0;
+let musicSectionOrder = [0, 1, 2, 3, 4];
 
-const MUSIC_NOTES_DESERT = [
-  164.81, 196.00, 220.00, 261.63, 293.66, 261.63, 220.00, 196.00,
-  174.61, 220.00, 261.63, 293.66, 329.63, 293.66, 261.63, 220.00,
-  146.83, 174.61, 220.00, 261.63, 293.66, 261.63, 220.00, 174.61,
-  130.81, 164.81, 196.00, 220.00, 261.63, 220.00, 196.00, 164.81,
+function mus(f, b = 1, k = false, h = false) {
+  return { f, b: b || 1, k: !!k, h: !!h };
+}
+
+const Hz = {
+  C3: 130.81, D3: 146.83, E3: 164.81, F3: 174.61, G3: 196.0, A3: 220.0, B3: 246.94,
+  C4: 261.63, D4: 293.66, E4: 329.63, F4: 349.23, G4: 392.0, A4: 440.0, B4: 493.88, C5: 523.25,
+  D5: 587.33, E5: 659.25,
+};
+
+const MUSIC_TRACK_DESERT = [
+  [
+    mus(Hz.E4, 1, true), mus(Hz.G4, 0.5), mus(Hz.A4, 0.5), mus(Hz.G4, 1, false, true),
+    mus(Hz.E4, 0.5), mus(Hz.D4, 0.5, true), mus(Hz.C4, 1.5), mus(Hz.G3, 0.5, false, true),
+    mus(Hz.A3, 1, true), mus(Hz.C4, 0.5), mus(Hz.E4, 0.5), mus(Hz.D4, 1, true), mus(Hz.C4, 1),
+    mus(Hz.E4, 0.5, false, true), mus(Hz.G4, 0.5), mus(Hz.A4, 1, true), mus(Hz.G4, 0.5), mus(Hz.E4, 0.5),
+    mus(Hz.F4, 1, true), mus(Hz.A4, 0.5), mus(Hz.C5, 0.5), mus(Hz.B4, 1.5, true), mus(Hz.G4, 0.5, false, true),
+    mus(Hz.E4, 1, true), mus(Hz.D4, 0.5), mus(Hz.C4, 0.5), mus(Hz.D4, 2, true),
+  ],
+  [
+    mus(Hz.C4, 0.5, true), mus(Hz.E4, 0.5), mus(Hz.G4, 0.5, false, true), mus(Hz.E4, 0.5),
+    mus(Hz.C4, 0.5, true), mus(Hz.D4, 0.5), mus(Hz.F4, 0.5, false, true), mus(Hz.A4, 0.5),
+    mus(Hz.G4, 1, true), mus(Hz.E4, 0.5), mus(Hz.C4, 0.5, true), mus(Hz.G3, 1),
+    mus(Hz.A3, 0.5, false, true), mus(Hz.C4, 0.5), mus(Hz.E4, 1, true), mus(Hz.G4, 0.5), mus(Hz.A4, 0.5),
+    mus(Hz.G4, 1, true, true), mus(Hz.F4, 0.5), mus(Hz.E4, 0.5), mus(Hz.D4, 1, true), mus(Hz.C4, 1),
+    mus(Hz.G3, 0.5, true), mus(Hz.C4, 0.5), mus(Hz.E4, 1, false, true), mus(Hz.G4, 1.5, true),
+  ],
+  [
+    mus(Hz.A3, 1, true), mus(Hz.C4, 0.5), mus(Hz.E4, 0.5, false, true), mus(Hz.A4, 1, true),
+    mus(Hz.G4, 0.5), mus(Hz.E4, 0.5), mus(Hz.C4, 1, true), mus(Hz.E4, 0.5, false, true),
+    mus(Hz.G4, 0.5), mus(Hz.A4, 1, true), mus(Hz.G4, 0.5), mus(Hz.E4, 0.5, true),
+    mus(Hz.D4, 1), mus(Hz.F4, 0.5, false, true), mus(Hz.A4, 0.5), mus(Hz.C5, 1, true),
+    mus(Hz.B4, 0.5), mus(Hz.G4, 0.5, true), mus(Hz.E4, 1.5), mus(Hz.D4, 0.5, false, true),
+    mus(Hz.C4, 1, true), mus(Hz.G3, 0.5), mus(Hz.E3, 0.5), mus(Hz.C4, 2, true),
+  ],
+  [
+    mus(Hz.G4, 0.5, true), mus(Hz.G4, 0.5, false, true), mus(Hz.E4, 0.5), mus(Hz.C4, 0.5, true),
+    mus(Hz.A3, 1), mus(Hz.C4, 0.5, true), mus(Hz.E4, 0.5), mus(Hz.G4, 1, false, true),
+    mus(Hz.F4, 0.5, true), mus(Hz.A4, 0.5), mus(Hz.C5, 0.5), mus(Hz.A4, 1, true),
+    mus(Hz.G4, 0.5, false, true), mus(Hz.E4, 0.5), mus(Hz.C4, 1, true), mus(Hz.D4, 0.5), mus(Hz.E4, 0.5),
+    mus(Hz.F4, 1, true), mus(Hz.E4, 0.5), mus(Hz.D4, 0.5, false, true), mus(Hz.C4, 1, true),
+    mus(Hz.B3, 0.5), mus(Hz.A3, 0.5), mus(Hz.G3, 2, true),
+  ],
+  [
+    mus(Hz.E4, 0.5, true), mus(Hz.G4, 0.5), mus(Hz.B4, 0.5, false, true), mus(Hz.G4, 0.5),
+    mus(Hz.E4, 1, true), mus(Hz.C5, 0.5), mus(Hz.B4, 0.5, true), mus(Hz.A4, 1),
+    mus(Hz.G4, 0.5, true, true), mus(Hz.F4, 0.5), mus(Hz.E4, 1, true), mus(Hz.D4, 0.5), mus(Hz.C4, 0.5),
+    mus(Hz.G3, 1, true), mus(Hz.A3, 0.5), mus(Hz.B3, 0.5, false, true), mus(Hz.C4, 1, true),
+    mus(Hz.D4, 0.5), mus(Hz.E4, 0.5), mus(Hz.F4, 1, true), mus(Hz.G4, 0.5), mus(Hz.A4, 0.5, false, true),
+    mus(Hz.G4, 0.5, true), mus(Hz.E4, 0.5), mus(Hz.C4, 0.5), mus(Hz.G3, 1.5, true), mus(Hz.C4, 0.5, false, true),
+  ],
 ];
-const MUSIC_NOTES_FOREST = [
-  130.81, 155.56, 174.61, 196.00, 220.00, 196.00, 174.61, 155.56,
-  146.83, 174.61, 196.00, 220.00, 246.94, 220.00, 196.00, 174.61,
-  116.54, 138.59, 164.81, 196.00, 220.00, 196.00, 164.81, 138.59,
-  123.47, 146.83, 174.61, 196.00, 220.00, 196.00, 174.61, 146.83,
+
+const MUSIC_TRACK_FOREST = [
+  [
+    mus(Hz.A3, 1, true), mus(Hz.C4, 0.5), mus(Hz.E4, 0.5, false, true), mus(Hz.G4, 1, true),
+    mus(Hz.F4, 0.5), mus(Hz.E4, 0.5), mus(Hz.D4, 1, true), mus(Hz.C4, 0.5, false, true),
+    mus(Hz.B3, 0.5), mus(Hz.A3, 1, true), mus(Hz.G3, 0.5), mus(Hz.A3, 0.5, true),
+    mus(Hz.C4, 1), mus(Hz.D4, 0.5, false, true), mus(Hz.E4, 0.5), mus(Hz.F4, 1, true),
+    mus(Hz.E4, 0.5), mus(Hz.D4, 0.5, true), mus(Hz.C4, 1.5), mus(Hz.A3, 0.5, false, true),
+    mus(Hz.G3, 1, true), mus(Hz.E3, 0.5), mus(Hz.G3, 0.5), mus(Hz.A3, 2, true),
+  ],
+  [
+    mus(Hz.E4, 0.5, true), mus(Hz.D4, 0.5, false, true), mus(Hz.C4, 0.5), mus(Hz.B3, 0.5, true),
+    mus(Hz.A3, 1), mus(Hz.C4, 0.5, true), mus(Hz.E4, 0.5), mus(Hz.G4, 1, false, true),
+    mus(Hz.A4, 0.5, true), mus(Hz.G4, 0.5), mus(Hz.E4, 0.5), mus(Hz.C4, 1, true),
+    mus(Hz.D4, 0.5, false, true), mus(Hz.E4, 0.5), mus(Hz.F4, 1, true), mus(Hz.G4, 0.5), mus(Hz.A4, 0.5),
+    mus(Hz.G4, 1, true, true), mus(Hz.E4, 0.5), mus(Hz.C4, 0.5, true), mus(Hz.A3, 1),
+    mus(Hz.G3, 0.5, true), mus(Hz.F3, 0.5), mus(Hz.E3, 1.5, true), mus(0, 0.5, false, true),
+  ],
+  [
+    mus(Hz.C4, 0.5, true), mus(Hz.E4, 0.5), mus(Hz.G4, 0.5, false, true), mus(Hz.A4, 0.5),
+    mus(Hz.G4, 1, true), mus(Hz.E4, 0.5), mus(Hz.C4, 0.5, true), mus(Hz.A3, 1),
+    mus(Hz.B3, 0.5, false, true), mus(Hz.C4, 0.5), mus(Hz.D4, 1, true), mus(Hz.E4, 0.5), mus(Hz.F4, 0.5),
+    mus(Hz.E4, 1, true), mus(Hz.D4, 0.5, false, true), mus(Hz.C4, 0.5), mus(Hz.B3, 1, true),
+    mus(Hz.A3, 0.5), mus(Hz.G3, 0.5, true), mus(Hz.A3, 1.5), mus(Hz.C4, 0.5, false, true),
+    mus(Hz.E4, 1, true), mus(Hz.D4, 0.5), mus(Hz.C4, 0.5), mus(Hz.A3, 2, true),
+  ],
+  [
+    mus(Hz.F3, 1, true), mus(Hz.A3, 0.5), mus(Hz.C4, 0.5, false, true), mus(Hz.F4, 1, true),
+    mus(Hz.E4, 0.5), mus(Hz.D4, 0.5), mus(Hz.C4, 1, true), mus(Hz.B3, 0.5, false, true),
+    mus(Hz.A3, 0.5), mus(Hz.G3, 1, true), mus(Hz.A3, 0.5), mus(Hz.B3, 0.5, true),
+    mus(Hz.C4, 1), mus(Hz.D4, 0.5, false, true), mus(Hz.E4, 0.5), mus(Hz.G4, 1, true),
+    mus(Hz.F4, 0.5), mus(Hz.E4, 0.5, true), mus(Hz.D4, 1.5), mus(Hz.C4, 0.5, false, true),
+    mus(Hz.A3, 1, true), mus(Hz.G3, 0.5), mus(Hz.E3, 0.5), mus(Hz.A3, 2, true),
+  ],
+  [
+    mus(Hz.G4, 0.5, true), mus(Hz.E4, 0.5, false, true), mus(Hz.C4, 0.5), mus(Hz.A3, 0.5, true),
+    mus(Hz.G3, 1), mus(Hz.A3, 0.5, true), mus(Hz.B3, 0.5), mus(Hz.C4, 1, false, true),
+    mus(Hz.D4, 0.5, true), mus(Hz.E4, 0.5), mus(Hz.C4, 0.5), mus(Hz.A3, 1, true),
+    mus(Hz.G3, 0.5, false, true), mus(Hz.A3, 0.5), mus(Hz.C4, 1, true), mus(Hz.E4, 0.5), mus(Hz.G4, 0.5),
+    mus(Hz.A4, 1, true), mus(Hz.G4, 0.5), mus(Hz.E4, 0.5, false, true), mus(Hz.C4, 1, true),
+    mus(Hz.B3, 0.5), mus(Hz.A3, 0.5), mus(Hz.G3, 0.5, true), mus(Hz.E3, 1.5, false, true),
+  ],
 ];
-let currentMusicNotes = MUSIC_NOTES_DESERT;
+
+function getMusicTrack() {
+  return currentBiome === BIOME.DESERT ? MUSIC_TRACK_DESERT : MUSIC_TRACK_FOREST;
+}
 
 function initAudio() {
-  if (audioStarted) return;
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  audioStarted = true;
+  if (!audioCtx) {
+    try {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    } catch (e) {
+      return;
+    }
 
-  musicGain = audioCtx.createGain();
-  musicGain.gain.value = 0.15;
-  musicGain.connect(audioCtx.destination);
+    musicGain = audioCtx.createGain();
+    musicGain.gain.value = 0.18;
+    musicGain.connect(audioCtx.destination);
 
-  // Background pad — constant warm chord drone
-  const padNotes = [65.41, 82.41, 98.00]; // C2, E2, G2
-  padNotes.forEach(freq => {
-    const o = audioCtx.createOscillator();
-    const g = audioCtx.createGain();
-    const f = audioCtx.createBiquadFilter();
-    o.type = 'sine';
-    o.frequency.value = freq;
-    g.gain.value = 0.02;
-    f.type = 'lowpass';
-    f.frequency.value = 150;
-    o.connect(f).connect(g).connect(audioCtx.destination);
-    o.start();
-  });
+    const padNotes = [65.41, 82.41, 98.0];
+    padNotes.forEach(freq => {
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      const f = audioCtx.createBiquadFilter();
+      o.type = 'sine';
+      o.frequency.value = freq;
+      g.gain.value = 0.028;
+      f.type = 'lowpass';
+      f.frequency.value = 150;
+      o.connect(f).connect(g).connect(audioCtx.destination);
+      o.start();
+    });
 
-  // Dummy refs for compatibility
-  engineOsc = { frequency: { value: 0 } };
-  engineGain = { gain: { value: 0 } };
-  ambientDesertGain = { gain: { value: 0 } };
-  ambientForestGain = { gain: { value: 0 } };
-  ambientForestGain2 = { gain: { value: 0 } };
+    engineOsc = { frequency: { value: 0 } };
+    engineGain = { gain: { value: 0 } };
+    ambientDesertGain = { gain: { value: 0 } };
+    ambientForestGain = { gain: { value: 0 } };
+    ambientForestGain2 = { gain: { value: 0 } };
+  }
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume().catch(() => {});
+  }
 }
 
 function playSound(type) {
@@ -360,90 +454,115 @@ function playSound(type) {
   }
 }
 
-function playMusicNote(freq, duration) {
+function playNoiseHit(now, vol, lenMs, highPassHz) {
+  const bufLen = Math.max(1, Math.floor(audioCtx.sampleRate * (lenMs / 1000)));
+  const buf = audioCtx.createBuffer(1, bufLen, audioCtx.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < bufLen; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / bufLen);
+  const src = audioCtx.createBufferSource();
+  src.buffer = buf;
+  const pg = audioCtx.createGain();
+  pg.gain.setValueAtTime(vol, now);
+  pg.gain.exponentialRampToValueAtTime(0.001, now + lenMs / 1000 + 0.02);
+  const pf = audioCtx.createBiquadFilter();
+  pf.type = 'highpass';
+  pf.frequency.value = highPassHz;
+  src.connect(pf).connect(pg).connect(musicGain);
+  src.start(now);
+  src.stop(now + lenMs / 1000 + 0.03);
+}
+
+function playMusicStep(step, duration) {
   if (!audioCtx || !musicGain) return;
   const now = audioCtx.currentTime;
+  const freq = step.f;
 
-  // Lead — square wave, retro feel
-  const lead = audioCtx.createOscillator();
-  const lg = audioCtx.createGain();
-  lead.type = 'square';
-  lead.frequency.value = freq;
-  lg.gain.setValueAtTime(0.12, now);
-  lg.gain.setValueAtTime(0.1, now + 0.02);
-  lg.gain.exponentialRampToValueAtTime(0.001, now + duration * 0.85);
-  const lf = audioCtx.createBiquadFilter();
-  lf.type = 'lowpass'; lf.frequency.value = 1200;
-  lead.connect(lf).connect(lg).connect(musicGain);
-  lead.start(now); lead.stop(now + duration);
+  if (freq > 0) {
+    const lead = audioCtx.createOscillator();
+    const lg = audioCtx.createGain();
+    lead.type = 'square';
+    lead.frequency.value = freq;
+    lg.gain.setValueAtTime(0.1, now);
+    lg.gain.setValueAtTime(0.085, now + 0.02);
+    lg.gain.exponentialRampToValueAtTime(0.001, now + duration * 0.88);
+    const lf = audioCtx.createBiquadFilter();
+    lf.type = 'lowpass';
+    lf.frequency.value = 1100;
+    lead.connect(lf).connect(lg).connect(musicGain);
+    lead.start(now);
+    lead.stop(now + duration);
 
-  // Harmony — fifth above, softer
-  const harm = audioCtx.createOscillator();
-  const hg = audioCtx.createGain();
-  harm.type = 'triangle';
-  harm.frequency.value = freq * 1.5;
-  hg.gain.setValueAtTime(0.04, now);
-  hg.gain.exponentialRampToValueAtTime(0.001, now + duration * 0.7);
-  harm.connect(hg).connect(musicGain);
-  harm.start(now); harm.stop(now + duration);
+    const harm = audioCtx.createOscillator();
+    const hg = audioCtx.createGain();
+    harm.type = 'triangle';
+    harm.frequency.value = freq * 1.498307077;
+    hg.gain.setValueAtTime(0.035, now);
+    hg.gain.exponentialRampToValueAtTime(0.001, now + duration * 0.72);
+    harm.connect(hg).connect(musicGain);
+    harm.start(now);
+    harm.stop(now + duration);
 
-  // Bass — every 2nd note, punchy
-  if (musicStep % 2 === 0) {
-    const bass = audioCtx.createOscillator();
-    const bg = audioCtx.createGain();
-    bass.type = 'sine';
-    bass.frequency.value = freq / 2;
-    bg.gain.setValueAtTime(0.08, now);
-    bg.gain.exponentialRampToValueAtTime(0.001, now + duration * 1.1);
-    const bf = audioCtx.createBiquadFilter();
-    bf.type = 'lowpass'; bf.frequency.value = 250;
-    bass.connect(bf).connect(bg).connect(musicGain);
-    bass.start(now); bass.stop(now + duration * 1.1);
+    if (step.k) {
+      const bass = audioCtx.createOscillator();
+      const bg = audioCtx.createGain();
+      bass.type = 'sine';
+      bass.frequency.value = Math.max(55, freq / 2);
+      bg.gain.setValueAtTime(0.07, now);
+      bg.gain.exponentialRampToValueAtTime(0.001, now + Math.min(duration * 1.05, 0.35));
+      const bf = audioCtx.createBiquadFilter();
+      bf.type = 'lowpass';
+      bf.frequency.value = 220;
+      bass.connect(bf).connect(bg).connect(musicGain);
+      bass.start(now);
+      bass.stop(now + Math.min(duration * 1.1, 0.38));
+    }
   }
 
-  // Percussion — every 4th note, noise hit
-  if (musicStep % 4 === 0) {
-    const bufLen = audioCtx.sampleRate * 0.05;
-    const buf = audioCtx.createBuffer(1, bufLen, audioCtx.sampleRate);
-    const d = buf.getChannelData(0);
-    for (let i = 0; i < bufLen; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / bufLen);
-    const src = audioCtx.createBufferSource();
-    src.buffer = buf;
-    const pg = audioCtx.createGain();
-    pg.gain.setValueAtTime(0.06, now);
-    pg.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
-    const pf = audioCtx.createBiquadFilter();
-    pf.type = 'highpass'; pf.frequency.value = 4000;
-    src.connect(pf).connect(pg).connect(musicGain);
-    src.start(now); src.stop(now + 0.08);
+  if (step.k) {
+    playNoiseHit(now, 0.055, 55, 3500);
+  }
+  if (step.h) {
+    playNoiseHit(now + 0.002, 0.028, 28, 7000);
   }
 }
 
 function updateAudio(dt) {
-  if (!audioCtx) return;
+  if (!audioCtx || !musicGain) return;
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume().catch(() => {});
+  }
   if (gameState !== STATE.PLAYING) return;
 
-  // Switch melody based on biome
-  currentMusicNotes = currentBiome === BIOME.DESERT ? MUSIC_NOTES_DESERT : MUSIC_NOTES_FOREST;
-
-  // Tempo increases with speed
-  const bpm = 100 + speed * 8 + (nitroActive ? 30 : 0);
+  const track = getMusicTrack();
+  const bpm = 82 + speed * 6 + (nitroActive ? 22 : 0);
   const beatDuration = 60 / bpm;
 
   musicTimer -= dt;
   if (musicTimer <= 0) {
-    const note = currentMusicNotes[musicStep % currentMusicNotes.length];
-    playMusicNote(note, beatDuration * 0.8);
-    musicStep++;
-    musicTimer = beatDuration;
+    const sectionIdx = musicSectionOrder[musicSectionSlot % musicSectionOrder.length] % track.length;
+    const section = track[sectionIdx];
+    const step = section[musicSeqIndex % section.length];
+    const dur = beatDuration * step.b * 0.92;
+    playMusicStep(step, dur);
+    musicSeqIndex++;
+    if (musicSeqIndex >= section.length) {
+      musicSeqIndex = 0;
+      musicSectionSlot++;
+      if (musicSectionSlot >= musicSectionOrder.length) {
+        musicSectionSlot = 0;
+        musicSectionOrder.push(musicSectionOrder.shift());
+      }
+    }
+    musicTimer = dur;
   }
 
-  musicGain.gain.value = 0.15;
+  musicGain.gain.value = 0.18;
 }
 
 // ═══════════ INPUT ═══════════
 const keys = {};
 window.addEventListener('keydown', e => {
+  initAudio();
   keys[e.code] = true;
   if (e.code === 'Enter') {
     if (gameState === STATE.MENU) startGame();
@@ -499,7 +618,13 @@ canvas.addEventListener('click', (ev) => {
     const cx = ev.clientX, cy = ev.clientY;
     if (cx >= faqBtnRect.x && cx <= faqBtnRect.x + faqBtnRect.w && cy >= faqBtnRect.y && cy <= faqBtnRect.y + faqBtnRect.h) {
       showFaq = true;
+      return;
     }
+    startGame();
+    return;
+  }
+  if (gameState === STATE.GAMEOVER) {
+    startGame();
   }
 });
 
@@ -545,6 +670,10 @@ function startGame() {
   initDesertObjects();
   initForestObjects();
   biomeBadge = { show: true, alpha: 0, y: -40, timer: 3, name: 'DESERT HIGHWAY', color: '#cc8833' };
+  musicSeqIndex = 0;
+  musicSectionSlot = 0;
+  musicSectionOrder = [0, 1, 2, 3, 4];
+  musicTimer = 0;
 }
 
 function hitPlayer() {
@@ -689,6 +818,8 @@ function update(dt) {
       transitioning = false;
       currentBiome = nextBiome;
       biomeTimer = 0;
+      musicSeqIndex = 0;
+      musicTimer = 0;
       biomeTransitions++;
       score += 200;
       baseSpeed += 0.6;
@@ -1883,7 +2014,7 @@ function gameLoop(timestamp) {
   if (fpsTime >= 1) { fpsDisplay = fpsCounter; fpsCounter = 0; fpsTime = 0; }
 
   update(dt);
-  if (audioStarted) updateAudio(dt);
+  updateAudio(dt);
   render();
 }
 
