@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import { usePrivy, useWallets } from "@privy-io/react-auth";
 import { encodeFunctionData, createPublicClient, http, type Hex } from "viem";
 import { base } from "viem/chains";
@@ -668,47 +669,50 @@ function MainScreen({ address }: { address: string }) {
         TOP Players
       </button>
 
-      {/* Leaderboard modal */}
-      {showLB && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={() => setShowLB(false)}>
+      {/* Leaderboard modal — rendered via portal to ensure it covers entire viewport */}
+      {showLB && typeof document !== "undefined" && createPortal(
+        <div
+          style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,0.88)" }}
+          onClick={() => setShowLB(false)}
+        >
           <div
-            className="w-full rounded-2xl border border-zinc-700 bg-zinc-900 p-4"
-            style={{ maxWidth: "22rem", maxHeight: "65dvh", display: "flex", flexDirection: "column" }}
+            style={{ width: "calc(100% - 2.5rem)", maxWidth: "20rem", maxHeight: "60dvh", background: "#18181b", border: "1px solid #3f3f46", borderRadius: "1rem", padding: "1rem", display: "flex", flexDirection: "column" }}
             onClick={e => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between mb-3 shrink-0">
-              <h2 className="text-base font-bold text-white">Top Players</h2>
-              <button onClick={() => setShowLB(false)} className="text-zinc-500 hover:text-white text-lg leading-none px-1">&times;</button>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem", flexShrink: 0 }}>
+              <span style={{ fontSize: "1rem", fontWeight: 700, color: "#fff" }}>Top Players</span>
+              <button onClick={() => setShowLB(false)} style={{ color: "#71717a", fontSize: "1.25rem", lineHeight: 1, padding: "0 4px", background: "none", border: "none", cursor: "pointer" }}>&times;</button>
             </div>
 
             {lbLoading ? (
-              <div className="flex justify-center py-8">
+              <div style={{ display: "flex", justifyContent: "center", padding: "2rem 0" }}>
                 <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/20 border-t-white/80" />
               </div>
             ) : lbEntries.length === 0 ? (
-              <p className="py-8 text-center text-sm text-zinc-500">No scores yet</p>
+              <p style={{ padding: "2rem 0", textAlign: "center", fontSize: "0.875rem", color: "#71717a" }}>No scores yet</p>
             ) : (
-              <div className="overflow-y-auto flex-1 min-h-0">
+              <div style={{ overflowY: "auto", flex: 1, minHeight: 0 }}>
                 {lbEntries.slice(0, 30).map((e) => {
-                  const medal = e.rank === 1 ? "text-yellow-400" : e.rank === 2 ? "text-zinc-300" : e.rank === 3 ? "text-amber-600" : "text-zinc-500";
                   const isMe = e.address.toLowerCase() === address.toLowerCase();
+                  const rankColor = e.rank === 1 ? "#facc15" : e.rank === 2 ? "#d4d4d8" : e.rank === 3 ? "#cd7f32" : "#a1a1aa";
                   return (
-                    <div key={e.rank} className={`flex items-center justify-between py-2 px-2 ${isMe ? "bg-yellow-400/10 rounded-lg" : ""}`}>
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className={`w-7 shrink-0 text-right font-mono text-xs font-bold ${medal}`}>#{e.rank}</span>
-                        <span className={`truncate font-mono text-xs ${isMe ? "text-yellow-300" : "text-zinc-300"}`}>
+                    <div key={e.rank} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0.5rem 0.5rem", borderRadius: isMe ? "0.5rem" : undefined, background: isMe ? "rgba(250,204,21,0.1)" : undefined }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", minWidth: 0 }}>
+                        <span style={{ width: "1.75rem", textAlign: "right", fontFamily: "monospace", fontSize: "0.75rem", fontWeight: 700, color: rankColor, flexShrink: 0 }}>#{e.rank}</span>
+                        <span style={{ fontFamily: "monospace", fontSize: "0.75rem", color: isMe ? "#facc15" : "#d4d4d8", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                           {e.address.slice(0, 6)}…{e.address.slice(-4)}
-                          {isMe && <span className="ml-1 text-[10px] text-yellow-400">(you)</span>}
+                          {isMe && <span style={{ marginLeft: "4px", fontSize: "0.625rem", color: "#facc15" }}>(you)</span>}
                         </span>
                       </div>
-                      <span className="shrink-0 font-mono text-xs font-bold text-white ml-2">{e.score.toLocaleString()}</span>
+                      <span style={{ fontFamily: "monospace", fontSize: "0.75rem", fontWeight: 700, color: "#fff", flexShrink: 0, marginLeft: "0.5rem" }}>{e.score.toLocaleString()}</span>
                     </div>
                   );
                 })}
               </div>
             )}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
