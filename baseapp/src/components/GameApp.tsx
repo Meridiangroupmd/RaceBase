@@ -439,10 +439,10 @@ function MainScreen({ address }: { address: string }) {
       const data = encodeFunctionData({ abi: raceBaseAbi, functionName });
       const dataWithBuilder = (data + BUILDER_CODE_SUFFIX.slice(2)) as Hex;
 
-      let txHash: string;
+      let sponsored = false;
       try {
         // Try sponsored transaction via wallet_sendCalls + paymaster
-        const result = await provider.request({
+        await provider.request({
           method: "wallet_sendCalls",
           params: [{
             version: "1.0",
@@ -460,10 +460,10 @@ function MainScreen({ address }: { address: string }) {
             },
           }],
         });
-        txHash = typeof result === "string" ? result : (result as { id: string }).id;
+        sponsored = true;
       } catch {
         // Fallback: regular transaction (user pays gas)
-        txHash = await provider.request({
+        const txHash = await provider.request({
           method: "eth_sendTransaction",
           params: [{
             from: address,
@@ -471,15 +471,16 @@ function MainScreen({ address }: { address: string }) {
             data: dataWithBuilder,
           }],
         }) as string;
+        setTxStatus("Confirming...");
+        await publicClient.waitForTransactionReceipt({ hash: txHash as `0x${string}` });
       }
 
-      setTxStatus("Confirming...");
-      await publicClient.waitForTransactionReceipt({ hash: txHash as `0x${string}` });
       setTxStatus("Done!");
-      await fetchPlayerData();
       if (functionName === "race") {
         window.location.href = "/game.html";
+        return;
       }
+      await fetchPlayerData();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Failed";
       setTxStatus(msg.length > 40 ? msg.slice(0, 40) + "…" : msg);
