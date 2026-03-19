@@ -257,49 +257,71 @@ let engineOsc, engineGain;
 let ambientDesertOsc, ambientDesertGain;
 let ambientForestOsc, ambientForestGain, ambientForestOsc2, ambientForestGain2;
 
+let engineOsc2, engineGain2;
+
 function initAudio() {
   if (audioStarted) return;
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   audioStarted = true;
 
+  // Engine — soft low hum (triangle + sine layered, filtered)
   engineOsc = audioCtx.createOscillator();
   engineGain = audioCtx.createGain();
-  engineOsc.type = 'sawtooth';
-  engineOsc.frequency.value = 80;
-  engineGain.gain.value = 0.04;
-  engineOsc.connect(engineGain).connect(audioCtx.destination);
+  engineOsc.type = 'triangle';
+  engineOsc.frequency.value = 55;
+  engineGain.gain.value = 0.02;
+  const engineFilter = audioCtx.createBiquadFilter();
+  engineFilter.type = 'lowpass';
+  engineFilter.frequency.value = 300;
+  engineOsc.connect(engineFilter).connect(engineGain).connect(audioCtx.destination);
   engineOsc.start();
 
+  // Engine harmonic layer
+  engineOsc2 = audioCtx.createOscillator();
+  engineGain2 = audioCtx.createGain();
+  engineOsc2.type = 'sine';
+  engineOsc2.frequency.value = 110;
+  engineGain2.gain.value = 0.012;
+  const engineFilter2 = audioCtx.createBiquadFilter();
+  engineFilter2.type = 'lowpass';
+  engineFilter2.frequency.value = 250;
+  engineOsc2.connect(engineFilter2).connect(engineGain2).connect(audioCtx.destination);
+  engineOsc2.start();
+
+  // Desert ambient — gentle warm wind (filtered noise-like via detuned sine)
   ambientDesertOsc = audioCtx.createOscillator();
   ambientDesertGain = audioCtx.createGain();
-  ambientDesertOsc.type = 'sawtooth';
-  ambientDesertOsc.frequency.value = 3200;
-  ambientDesertGain.gain.value = 0.012;
+  ambientDesertOsc.type = 'sine';
+  ambientDesertOsc.frequency.value = 180;
+  ambientDesertGain.gain.value = 0.006;
   const desFilter = audioCtx.createBiquadFilter();
-  desFilter.type = 'highpass';
-  desFilter.frequency.value = 2800;
+  desFilter.type = 'bandpass';
+  desFilter.frequency.value = 200;
+  desFilter.Q.value = 0.5;
   ambientDesertOsc.connect(desFilter).connect(ambientDesertGain).connect(audioCtx.destination);
   ambientDesertOsc.start();
 
+  // Forest ambient — deep low rumble
   ambientForestOsc = audioCtx.createOscillator();
   ambientForestGain = audioCtx.createGain();
-  ambientForestOsc.type = 'triangle';
-  ambientForestOsc.frequency.value = 120;
+  ambientForestOsc.type = 'sine';
+  ambientForestOsc.frequency.value = 80;
   ambientForestGain.gain.value = 0;
   const forFilter = audioCtx.createBiquadFilter();
   forFilter.type = 'lowpass';
-  forFilter.frequency.value = 400;
+  forFilter.frequency.value = 150;
   ambientForestOsc.connect(forFilter).connect(ambientForestGain).connect(audioCtx.destination);
   ambientForestOsc.start();
 
+  // Forest layer 2 — soft mid tone
   ambientForestOsc2 = audioCtx.createOscillator();
   ambientForestGain2 = audioCtx.createGain();
-  ambientForestOsc2.type = 'sawtooth';
-  ambientForestOsc2.frequency.value = 80;
+  ambientForestOsc2.type = 'triangle';
+  ambientForestOsc2.frequency.value = 60;
   ambientForestGain2.gain.value = 0;
   const forFilter2 = audioCtx.createBiquadFilter();
   forFilter2.type = 'lowpass';
-  forFilter2.frequency.value = 200;
+  forFilter2.frequency.value = 120;
   ambientForestOsc2.connect(forFilter2).connect(ambientForestGain2).connect(audioCtx.destination);
   ambientForestOsc2.start();
 }
@@ -308,33 +330,39 @@ function playSound(type) {
   if (!audioCtx) return;
   const now = audioCtx.currentTime;
   if (type === 'collision') {
+    // Dull thud — low sine with quick decay
     const o = audioCtx.createOscillator();
     const g = audioCtx.createGain();
-    const d = audioCtx.createBiquadFilter();
-    d.type = 'lowpass'; d.frequency.value = 800;
-    o.type = 'sawtooth'; o.frequency.value = 150;
-    g.gain.setValueAtTime(0.2, now);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
-    o.connect(d).connect(g).connect(audioCtx.destination);
-    o.start(now); o.stop(now + 0.35);
+    const f = audioCtx.createBiquadFilter();
+    f.type = 'lowpass'; f.frequency.value = 400;
+    o.type = 'sine'; o.frequency.setValueAtTime(100, now);
+    o.frequency.exponentialRampToValueAtTime(40, now + 0.25);
+    g.gain.setValueAtTime(0.15, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+    o.connect(f).connect(g).connect(audioCtx.destination);
+    o.start(now); o.stop(now + 0.3);
   } else if (type === 'nearmiss') {
+    // Quick soft blip
     const o = audioCtx.createOscillator();
     const g = audioCtx.createGain();
-    o.type = 'sine'; o.frequency.setValueAtTime(1200, now);
-    o.frequency.exponentialRampToValueAtTime(1800, now + 0.08);
-    g.gain.setValueAtTime(0.1, now);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+    o.type = 'sine'; o.frequency.setValueAtTime(800, now);
+    o.frequency.exponentialRampToValueAtTime(1200, now + 0.06);
+    g.gain.setValueAtTime(0.06, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
     o.connect(g).connect(audioCtx.destination);
-    o.start(now); o.stop(now + 0.12);
+    o.start(now); o.stop(now + 0.1);
   } else if (type === 'nitro') {
+    // Smooth whoosh up — sine sweep
     const o = audioCtx.createOscillator();
     const g = audioCtx.createGain();
-    o.type = 'sawtooth'; o.frequency.setValueAtTime(200, now);
-    o.frequency.exponentialRampToValueAtTime(1200, now + 0.5);
-    g.gain.setValueAtTime(0.08, now);
-    g.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
-    o.connect(g).connect(audioCtx.destination);
-    o.start(now); o.stop(now + 0.6);
+    const f = audioCtx.createBiquadFilter();
+    f.type = 'lowpass'; f.frequency.value = 800;
+    o.type = 'sine'; o.frequency.setValueAtTime(150, now);
+    o.frequency.exponentialRampToValueAtTime(600, now + 0.4);
+    g.gain.setValueAtTime(0.06, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+    o.connect(f).connect(g).connect(audioCtx.destination);
+    o.start(now); o.stop(now + 0.5);
   } else if (type === 'whoosh') {
     const bufLen = audioCtx.sampleRate * 0.4;
     const buf = audioCtx.createBuffer(1, bufLen, audioCtx.sampleRate);
@@ -354,14 +382,17 @@ function playSound(type) {
 
 function updateAudio(dt) {
   if (!audioCtx) return;
-  const desertVol = transitioning ? lerp(currentBiome === BIOME.DESERT ? 0.012 : 0, currentBiome === BIOME.DESERT ? 0 : 0.012, transitionProgress) : (currentBiome === BIOME.DESERT ? 0.012 : 0);
-  const forestVol = transitioning ? lerp(currentBiome === BIOME.FOREST ? 0.012 : 0, currentBiome === BIOME.FOREST ? 0 : 0.012, transitionProgress) : (currentBiome === BIOME.FOREST ? 0.012 : 0);
+  const playing = gameState === STATE.PLAYING;
+  const desertVol = transitioning ? lerp(currentBiome === BIOME.DESERT ? 0.006 : 0, currentBiome === BIOME.DESERT ? 0 : 0.006, transitionProgress) : (currentBiome === BIOME.DESERT ? 0.006 : 0);
+  const forestVol = transitioning ? lerp(currentBiome === BIOME.FOREST ? 0.008 : 0, currentBiome === BIOME.FOREST ? 0 : 0.008, transitionProgress) : (currentBiome === BIOME.FOREST ? 0.008 : 0);
   ambientDesertGain.gain.value = desertVol;
   ambientForestGain.gain.value = forestVol;
-  ambientForestGain2.gain.value = forestVol * 0.6;
-  const ef = 60 + speed * 18 + (nitroActive ? 40 : 0);
+  ambientForestGain2.gain.value = forestVol * 0.5;
+  const ef = 45 + speed * 12 + (nitroActive ? 25 : 0);
   engineOsc.frequency.value = ef;
-  engineGain.gain.value = gameState === STATE.PLAYING ? 0.035 : 0.01;
+  engineOsc2.frequency.value = ef * 2;
+  engineGain.gain.value = playing ? 0.018 : 0.005;
+  engineGain2.gain.value = playing ? 0.008 : 0.002;
 }
 
 // ═══════════ INPUT ═══════════
