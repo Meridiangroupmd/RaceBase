@@ -480,7 +480,23 @@ function MainScreen({ address }: { address: string }) {
 
   useEffect(() => {
     submitPendingScore();
-  }, [submitPendingScore]);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        submittedRef.current = false;
+        submitPendingScore();
+        fetchPlayerData();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", () => {
+      submittedRef.current = false;
+      submitPendingScore();
+      fetchPlayerData();
+    });
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [submitPendingScore, fetchPlayerData]);
 
   const sendTx = async (functionName: "checkIn" | "race") => {
     const wallet = wallets.find(w => w.address?.toLowerCase() === address.toLowerCase()) ?? wallets[0];
@@ -637,34 +653,38 @@ function MainScreen({ address }: { address: string }) {
 
       {/* Leaderboard modal */}
       {showLB && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 px-4" onClick={() => setShowLB(false)}>
-          <div className="w-full max-w-sm rounded-2xl border border-zinc-700 bg-zinc-900 p-5" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-bold text-white">Top Players</h2>
-              <button onClick={() => setShowLB(false)} className="text-zinc-500 hover:text-white text-xl leading-none">&times;</button>
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/80" onClick={() => setShowLB(false)}>
+          <div
+            className="w-full max-w-[min(100vw,24rem)] rounded-t-2xl border-t border-x border-zinc-700 bg-zinc-900 px-4 pt-4 pb-6"
+            style={{ maxHeight: "70dvh" }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-base font-bold text-white">Top Players</h2>
+              <button onClick={() => setShowLB(false)} className="text-zinc-500 hover:text-white text-lg leading-none px-1">&times;</button>
             </div>
 
             {lbLoading ? (
-              <div className="flex justify-center py-10">
+              <div className="flex justify-center py-8">
                 <div className="h-6 w-6 animate-spin rounded-full border-2 border-white/20 border-t-white/80" />
               </div>
             ) : lbEntries.length === 0 ? (
-              <p className="py-10 text-center text-sm text-zinc-500">No scores yet</p>
+              <p className="py-8 text-center text-sm text-zinc-500">No scores yet</p>
             ) : (
-              <div className="mt-4 max-h-[55vh] overflow-y-auto">
+              <div className="overflow-y-auto" style={{ maxHeight: "calc(70dvh - 5rem)" }}>
                 {lbEntries.slice(0, 30).map((e) => {
                   const medal = e.rank === 1 ? "text-yellow-400" : e.rank === 2 ? "text-zinc-300" : e.rank === 3 ? "text-amber-600" : "text-zinc-500";
                   const isMe = e.address.toLowerCase() === address.toLowerCase();
                   return (
-                    <div key={e.rank} className={`flex items-center justify-between py-2 px-1 ${isMe ? "bg-yellow-400/10 rounded-lg" : ""}`}>
-                      <div className="flex items-center gap-3">
-                        <span className={`w-7 text-right font-mono text-sm font-bold ${medal}`}>#{e.rank}</span>
-                        <span className={`font-mono text-sm ${isMe ? "text-yellow-300" : "text-zinc-300"}`}>
+                    <div key={e.rank} className={`flex items-center justify-between py-2 px-2 ${isMe ? "bg-yellow-400/10 rounded-lg" : ""}`}>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className={`w-7 shrink-0 text-right font-mono text-xs font-bold ${medal}`}>#{e.rank}</span>
+                        <span className={`truncate font-mono text-xs ${isMe ? "text-yellow-300" : "text-zinc-300"}`}>
                           {e.address.slice(0, 6)}…{e.address.slice(-4)}
                           {isMe && <span className="ml-1 text-[10px] text-yellow-400">(you)</span>}
                         </span>
                       </div>
-                      <span className="font-mono text-sm font-bold text-white">{e.score.toLocaleString()}</span>
+                      <span className="shrink-0 font-mono text-xs font-bold text-white ml-2">{e.score.toLocaleString()}</span>
                     </div>
                   );
                 })}

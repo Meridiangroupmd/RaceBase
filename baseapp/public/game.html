@@ -74,6 +74,11 @@ let enemyTypePool = [0, 1, 2, 3, 4, 5, 6];
 let pauseAlpha = 0;
 let showFaq = false;
 const faqBtnRect = { x: 0, y: 0, w: 36, h: 36 };
+let backToMenuRect = { x: 0, y: 0, w: 0, h: 0 };
+
+function goBackToMenu() {
+  window.location.href = '/';
+}
 let menuScroll = 0;
 let fpsCounter = 0, fpsDisplay = 0, fpsTime = 0;
 
@@ -621,6 +626,7 @@ canvas.addEventListener('touchstart', e => {
     return;
   }
   if (gameState === STATE.GAMEOVER) {
+    if (hitTest(tx, ty, backToMenuRect)) { goBackToMenu(); return; }
     startGame();
     return;
   }
@@ -654,6 +660,7 @@ canvas.addEventListener('click', (ev) => {
     return;
   }
   if (gameState === STATE.GAMEOVER) {
+    if (hitTest(cx, cy, backToMenuRect)) { goBackToMenu(); return; }
     startGame();
   }
 });
@@ -1872,8 +1879,15 @@ function drawGameOver(c) {
   if (Math.floor(totalTime * 1.43) % 2 === 0) {
     c.font = 'bold 14px monospace';
     c.fillStyle = '#ffffff';
-    c.fillText('PRESS ENTER TO RESTART', W / 2, H * 0.67);
+    c.fillText('TAP TO RESTART', W / 2, H * 0.67);
   }
+
+  // Back to menu button
+  const menuY = H * 0.76;
+  c.font = 'bold 13px monospace';
+  c.fillStyle = '#88ccff';
+  c.fillText('BACK TO MENU', W / 2, menuY);
+  backToMenuRect = { x: W / 2 - 90, y: menuY - 16, w: 180, h: 32 };
 }
 
 // ═══════════ DRAW PAUSE ═══════════
