@@ -8,6 +8,7 @@ import { CarIcon } from "./CarIcon";
 import { RACEBASE_ADDRESS, raceBaseAbi } from "@/config/contract";
 
 const BUILDER_CODE_SUFFIX = "0x62635f6c347977356c376d0b0080218021802180218021802180218021" as Hex;
+const PAYMASTER_URL = "https://api.developer.coinbase.com/rpc/v1/base/OPj0vhkXuMRNsVxHcgZRF0WGjlR7FV26";
 
 const publicClient = createPublicClient({
   chain: base,
@@ -437,16 +438,43 @@ function MainScreen({ address }: { address: string }) {
       const provider = await wallet.getEthereumProvider();
       const data = encodeFunctionData({ abi: raceBaseAbi, functionName });
       const dataWithBuilder = (data + BUILDER_CODE_SUFFIX.slice(2)) as Hex;
-      const tx = await provider.request({
-        method: "eth_sendTransaction",
-        params: [{
-          from: address,
-          to: RACEBASE_ADDRESS,
-          data: dataWithBuilder,
-        }],
-      });
+
+      let txHash: string;
+      try {
+        // Try sponsored transaction via wallet_sendCalls + paymaster
+        const result = await provider.request({
+          method: "wallet_sendCalls",
+          params: [{
+            version: "1.0",
+            chainId: "0x2105",
+            from: address,
+            calls: [{
+              to: RACEBASE_ADDRESS,
+              value: "0x0",
+              data: dataWithBuilder,
+            }],
+            capabilities: {
+              paymasterService: {
+                url: PAYMASTER_URL,
+              },
+            },
+          }],
+        });
+        txHash = typeof result === "string" ? result : (result as { id: string }).id;
+      } catch {
+        // Fallback: regular transaction (user pays gas)
+        txHash = await provider.request({
+          method: "eth_sendTransaction",
+          params: [{
+            from: address,
+            to: RACEBASE_ADDRESS,
+            data: dataWithBuilder,
+          }],
+        }) as string;
+      }
+
       setTxStatus("Confirming...");
-      await publicClient.waitForTransactionReceipt({ hash: tx as `0x${string}` });
+      await publicClient.waitForTransactionReceipt({ hash: txHash as `0x${string}` });
       setTxStatus("Done!");
       await fetchPlayerData();
       if (functionName === "race") {
