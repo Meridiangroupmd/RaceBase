@@ -411,6 +411,7 @@ function MainScreen({ address }: { address: string }) {
   const [showLB, setShowLB] = useState(false);
   const [lbEntries, setLbEntries] = useState<LBEntry[]>([]);
   const [lbLoading, setLbLoading] = useState(false);
+  const [scoreStatus, setScoreStatus] = useState("");
   const submittedRef = useRef(false);
 
   const fetchPlayerData = useCallback(async () => {
@@ -452,30 +453,46 @@ function MainScreen({ address }: { address: string }) {
     if (submittedRef.current) return;
     const raw = localStorage.getItem("roadEscape_pendingScore");
     if (!raw) return;
-    const pending = JSON.parse(raw) as { score: number; ts: number };
+    let pending: { score: number; ts: number };
+    try { pending = JSON.parse(raw); } catch { return; }
     if (!pending.score || pending.score <= 0) return;
     submittedRef.current = true;
+    setScoreStatus(`Submitting score ${pending.score}…`);
 
     const wallet = wallets.find(w => w.address?.toLowerCase() === address.toLowerCase()) ?? wallets[0];
-    if (!wallet) { submittedRef.current = false; return; }
+    if (!wallet) {
+      submittedRef.current = false;
+      setScoreStatus("No wallet found");
+      setTimeout(() => setScoreStatus(""), 3000);
+      return;
+    }
 
     try {
       const provider = await wallet.getEthereumProvider();
       const message = `RoadEscape|${pending.score}|${pending.ts}`;
       const hexMsg = ("0x" + Array.from(new TextEncoder().encode(message)).map(b => b.toString(16).padStart(2, "0")).join("")) as Hex;
-      const sig = await provider.request({
+      const sig: string = await provider.request({
         method: "personal_sign",
         params: [hexMsg, address],
       });
-      await fetch("/api/leaderboard", {
+      const res = await fetch("/api/leaderboard", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ address, score: pending.score, signature: sig, timestamp: pending.ts }),
       });
-      localStorage.removeItem("roadEscape_pendingScore");
-    } catch {
+      const json = await res.json();
+      if (json.ok) {
+        localStorage.removeItem("roadEscape_pendingScore");
+        setScoreStatus(`Score ${pending.score} saved!`);
+      } else {
+        setScoreStatus(json.error || "Failed to save score");
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Signing failed";
+      setScoreStatus(msg.length > 40 ? msg.slice(0, 40) + "…" : msg);
       submittedRef.current = false;
     }
+    setTimeout(() => setScoreStatus(""), 4000);
   }, [address, wallets]);
 
   useEffect(() => {
@@ -572,9 +589,9 @@ function MainScreen({ address }: { address: string }) {
       </div>
 
       {/* Status */}
-      {txStatus && (
+      {(txStatus || scoreStatus) && (
         <div className="relative z-10 mt-3 rounded-lg bg-zinc-800/80 px-4 py-2 text-xs text-zinc-300">
-          {txStatus}
+          {txStatus || scoreStatus}
         </div>
       )}
 
@@ -653,13 +670,13 @@ function MainScreen({ address }: { address: string }) {
 
       {/* Leaderboard modal */}
       {showLB && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/80" onClick={() => setShowLB(false)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={() => setShowLB(false)}>
           <div
-            className="w-full max-w-[min(100vw,24rem)] rounded-t-2xl border-t border-x border-zinc-700 bg-zinc-900 px-4 pt-4 pb-6"
-            style={{ maxHeight: "70dvh" }}
+            className="w-full rounded-2xl border border-zinc-700 bg-zinc-900 p-4"
+            style={{ maxWidth: "22rem", maxHeight: "65dvh", display: "flex", flexDirection: "column" }}
             onClick={e => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between mb-3 shrink-0">
               <h2 className="text-base font-bold text-white">Top Players</h2>
               <button onClick={() => setShowLB(false)} className="text-zinc-500 hover:text-white text-lg leading-none px-1">&times;</button>
             </div>
@@ -671,7 +688,7 @@ function MainScreen({ address }: { address: string }) {
             ) : lbEntries.length === 0 ? (
               <p className="py-8 text-center text-sm text-zinc-500">No scores yet</p>
             ) : (
-              <div className="overflow-y-auto" style={{ maxHeight: "calc(70dvh - 5rem)" }}>
+              <div className="overflow-y-auto flex-1 min-h-0">
                 {lbEntries.slice(0, 30).map((e) => {
                   const medal = e.rank === 1 ? "text-yellow-400" : e.rank === 2 ? "text-zinc-300" : e.rank === 3 ? "text-amber-600" : "text-zinc-500";
                   const isMe = e.address.toLowerCase() === address.toLowerCase();

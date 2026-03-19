@@ -1,12 +1,18 @@
 import { Redis } from "@upstash/redis";
 import { NextResponse } from "next/server";
-import { getAddress, isAddress, verifyMessage } from "viem";
+import { getAddress, isAddress, createPublicClient, http } from "viem";
+import { base } from "viem/chains";
 
 export const dynamic = "force-dynamic";
 
 const REDIS_KEY = "road_escape:leaderboard";
 const MAX_SCORE = 99_999_999;
-const MAX_TS_DRIFT_SEC = 600;
+const MAX_TS_DRIFT_SEC = 3600;
+
+const publicClient = createPublicClient({
+  chain: base,
+  transport: http("https://mainnet.base.org"),
+});
 
 function getRedis(): Redis | null {
   const url = process.env.UPSTASH_REDIS_REST_URL;
@@ -17,7 +23,6 @@ function getRedis(): Redis | null {
 
 export type LeaderboardEntry = { rank: number; address: string; score: number };
 
-/** GET — топ игроков (лучший счёт на адрес) */
 export async function GET() {
   const redis = getRedis();
   if (!redis) {
@@ -36,14 +41,10 @@ export async function GET() {
   return NextResponse.json({ entries, configured: true });
 }
 
-/** POST — записать счёт (нужна подпись кошелька) */
 export async function POST(req: Request) {
   const redis = getRedis();
   if (!redis) {
-    return NextResponse.json(
-      { error: "Leaderboard not configured (set Upstash Redis env vars)" },
-      { status: 503 },
-    );
+    return NextResponse.json({ error: "Leaderboard not configured" }, { status: 503 });
   }
 
   let body: unknown;
@@ -64,16 +65,12 @@ export async function POST(req: Request) {
   }
   const address = getAddress(String(addressRaw));
 
-  const sc =
-    typeof scoreRaw === "number" ? scoreRaw : parseInt(String(scoreRaw), 10);
+  const sc = typeof scoreRaw === "number" ? scoreRaw : parseInt(String(scoreRaw), 10);
   if (!Number.isFinite(sc) || sc < 0 || sc > MAX_SCORE) {
     return NextResponse.json({ error: "Invalid score" }, { status: 400 });
   }
 
-  const ts =
-    typeof timestampRaw === "number"
-      ? timestampRaw
-      : parseInt(String(timestampRaw), 10);
+  const ts = typeof timestampRaw === "number" ? timestampRaw : parseInt(String(timestampRaw), 10);
   const now = Math.floor(Date.now() / 1000);
   if (!Number.isFinite(ts) || Math.abs(now - ts) > MAX_TS_DRIFT_SEC) {
     return NextResponse.json({ error: "Invalid or expired timestamp" }, { status: 400 });
@@ -84,9 +81,11 @@ export async function POST(req: Request) {
   }
 
   const message = `RoadEscape|${sc}|${ts}`;
+
+  // ERC-1271 compatible — works for both EOA and Smart Wallets (Coinbase)
   let valid = false;
   try {
-    valid = await verifyMessage({
+    valid = await publicClient.verifyMessage({
       address,
       message,
       signature: signature as `0x${string}`,
@@ -106,10 +105,5 @@ export async function POST(req: Request) {
     await redis.zadd(REDIS_KEY, { score: sc, member });
   }
 
-  const best = Math.max(prevNum, sc);
-  return NextResponse.json({
-    ok: true,
-    updated: sc > prevNum,
-    best,
-  });
+  return NextResponse.json({ ok: true, updated: sc > prevNum, best: Math.max(prevNum, sc) });
 }
