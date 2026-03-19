@@ -439,54 +439,39 @@ function MainScreen({ address }: { address: string }) {
       const data = encodeFunctionData({ abi: raceBaseAbi, functionName });
       const dataWithBuilder = (data + BUILDER_CODE_SUFFIX.slice(2)) as Hex;
 
-      let sponsored = false;
-      try {
-        // Try sponsored transaction via wallet_sendCalls + paymaster
-        await provider.request({
-          method: "wallet_sendCalls",
-          params: [{
-            version: "1.0",
-            chainId: "0x2105",
-            from: address,
-            calls: [{
-              to: RACEBASE_ADDRESS,
-              value: "0x0",
-              data: dataWithBuilder,
-            }],
-            capabilities: {
-              paymasterService: {
-                url: PAYMASTER_URL,
-              },
-            },
-          }],
-        });
-        sponsored = true;
-      } catch {
-        // Fallback: regular transaction (user pays gas)
-        const txHash = await provider.request({
-          method: "eth_sendTransaction",
-          params: [{
-            from: address,
+      // Send via paymaster
+      await provider.request({
+        method: "wallet_sendCalls",
+        params: [{
+          version: "1.0",
+          chainId: "0x2105",
+          from: address,
+          calls: [{
             to: RACEBASE_ADDRESS,
+            value: "0x0",
             data: dataWithBuilder,
           }],
-        }) as string;
-        setTxStatus("Confirming...");
-        await publicClient.waitForTransactionReceipt({ hash: txHash as `0x${string}` });
-      }
+          capabilities: {
+            paymasterService: {
+              url: PAYMASTER_URL,
+            },
+          },
+        }],
+      });
 
-      setTxStatus("Done!");
+      // Success — redirect or refresh
       if (functionName === "race") {
         window.location.href = "/game.html";
         return;
       }
-      await fetchPlayerData();
+      setTxStatus("Done!");
+      setTimeout(() => fetchPlayerData(), 2000);
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Failed";
-      setTxStatus(msg.length > 40 ? msg.slice(0, 40) + "…" : msg);
+      const msg = e instanceof Error ? e.message : "Transaction failed";
+      setTxStatus(msg.length > 50 ? msg.slice(0, 50) + "…" : msg);
     } finally {
       setLoading("");
-      setTimeout(() => setTxStatus(""), 3000);
+      setTimeout(() => setTxStatus(""), 4000);
     }
   };
 
