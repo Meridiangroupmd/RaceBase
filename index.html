@@ -257,73 +257,38 @@ let engineOsc, engineGain;
 let ambientDesertOsc, ambientDesertGain;
 let ambientForestOsc, ambientForestGain, ambientForestOsc2, ambientForestGain2;
 
-let engineOsc2, engineGain2;
+let musicGain, musicStarted = false;
+let musicStep = 0, musicTimer = 0;
+
+const MUSIC_NOTES_DESERT = [
+  164.81, 196.00, 220.00, 261.63, 293.66, 261.63, 220.00, 196.00,
+  174.61, 220.00, 261.63, 293.66, 329.63, 293.66, 261.63, 220.00,
+  146.83, 174.61, 220.00, 261.63, 293.66, 261.63, 220.00, 174.61,
+  130.81, 164.81, 196.00, 220.00, 261.63, 220.00, 196.00, 164.81,
+];
+const MUSIC_NOTES_FOREST = [
+  130.81, 155.56, 174.61, 196.00, 220.00, 196.00, 174.61, 155.56,
+  146.83, 174.61, 196.00, 220.00, 246.94, 220.00, 196.00, 174.61,
+  116.54, 138.59, 164.81, 196.00, 220.00, 196.00, 164.81, 138.59,
+  123.47, 146.83, 174.61, 196.00, 220.00, 196.00, 174.61, 146.83,
+];
+let currentMusicNotes = MUSIC_NOTES_DESERT;
 
 function initAudio() {
   if (audioStarted) return;
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   audioStarted = true;
 
-  // Engine — soft low hum (triangle + sine layered, filtered)
-  engineOsc = audioCtx.createOscillator();
-  engineGain = audioCtx.createGain();
-  engineOsc.type = 'triangle';
-  engineOsc.frequency.value = 55;
-  engineGain.gain.value = 0.02;
-  const engineFilter = audioCtx.createBiquadFilter();
-  engineFilter.type = 'lowpass';
-  engineFilter.frequency.value = 300;
-  engineOsc.connect(engineFilter).connect(engineGain).connect(audioCtx.destination);
-  engineOsc.start();
+  musicGain = audioCtx.createGain();
+  musicGain.gain.value = 0.07;
+  musicGain.connect(audioCtx.destination);
 
-  // Engine harmonic layer
-  engineOsc2 = audioCtx.createOscillator();
-  engineGain2 = audioCtx.createGain();
-  engineOsc2.type = 'sine';
-  engineOsc2.frequency.value = 110;
-  engineGain2.gain.value = 0.012;
-  const engineFilter2 = audioCtx.createBiquadFilter();
-  engineFilter2.type = 'lowpass';
-  engineFilter2.frequency.value = 250;
-  engineOsc2.connect(engineFilter2).connect(engineGain2).connect(audioCtx.destination);
-  engineOsc2.start();
-
-  // Desert ambient — gentle warm wind (filtered noise-like via detuned sine)
-  ambientDesertOsc = audioCtx.createOscillator();
-  ambientDesertGain = audioCtx.createGain();
-  ambientDesertOsc.type = 'sine';
-  ambientDesertOsc.frequency.value = 180;
-  ambientDesertGain.gain.value = 0.006;
-  const desFilter = audioCtx.createBiquadFilter();
-  desFilter.type = 'bandpass';
-  desFilter.frequency.value = 200;
-  desFilter.Q.value = 0.5;
-  ambientDesertOsc.connect(desFilter).connect(ambientDesertGain).connect(audioCtx.destination);
-  ambientDesertOsc.start();
-
-  // Forest ambient — deep low rumble
-  ambientForestOsc = audioCtx.createOscillator();
-  ambientForestGain = audioCtx.createGain();
-  ambientForestOsc.type = 'sine';
-  ambientForestOsc.frequency.value = 80;
-  ambientForestGain.gain.value = 0;
-  const forFilter = audioCtx.createBiquadFilter();
-  forFilter.type = 'lowpass';
-  forFilter.frequency.value = 150;
-  ambientForestOsc.connect(forFilter).connect(ambientForestGain).connect(audioCtx.destination);
-  ambientForestOsc.start();
-
-  // Forest layer 2 — soft mid tone
-  ambientForestOsc2 = audioCtx.createOscillator();
-  ambientForestGain2 = audioCtx.createGain();
-  ambientForestOsc2.type = 'triangle';
-  ambientForestOsc2.frequency.value = 60;
-  ambientForestGain2.gain.value = 0;
-  const forFilter2 = audioCtx.createBiquadFilter();
-  forFilter2.type = 'lowpass';
-  forFilter2.frequency.value = 120;
-  ambientForestOsc2.connect(forFilter2).connect(ambientForestGain2).connect(audioCtx.destination);
-  ambientForestOsc2.start();
+  // Dummy refs for compatibility
+  engineOsc = { frequency: { value: 0 } };
+  engineGain = { gain: { value: 0 } };
+  ambientDesertGain = { gain: { value: 0 } };
+  ambientForestGain = { gain: { value: 0 } };
+  ambientForestGain2 = { gain: { value: 0 } };
 }
 
 function playSound(type) {
@@ -380,19 +345,66 @@ function playSound(type) {
   }
 }
 
+function playMusicNote(freq, duration) {
+  if (!audioCtx || !musicGain) return;
+  const now = audioCtx.currentTime;
+
+  // Lead — clean sine
+  const lead = audioCtx.createOscillator();
+  const lg = audioCtx.createGain();
+  lead.type = 'sine';
+  lead.frequency.value = freq;
+  lg.gain.setValueAtTime(0.07, now);
+  lg.gain.exponentialRampToValueAtTime(0.001, now + duration * 0.9);
+  lead.connect(lg).connect(musicGain);
+  lead.start(now); lead.stop(now + duration);
+
+  // Harmony — octave below, triangle, quieter
+  const harm = audioCtx.createOscillator();
+  const hg = audioCtx.createGain();
+  harm.type = 'triangle';
+  harm.frequency.value = freq / 2;
+  hg.gain.setValueAtTime(0.03, now);
+  hg.gain.exponentialRampToValueAtTime(0.001, now + duration * 0.85);
+  harm.connect(hg).connect(musicGain);
+  harm.start(now); harm.stop(now + duration);
+
+  // Bass pulse — every 4th note
+  if (musicStep % 4 === 0) {
+    const bass = audioCtx.createOscillator();
+    const bg = audioCtx.createGain();
+    bass.type = 'sine';
+    bass.frequency.value = freq / 4;
+    bg.gain.setValueAtTime(0.04, now);
+    bg.gain.exponentialRampToValueAtTime(0.001, now + duration * 1.2);
+    const bf = audioCtx.createBiquadFilter();
+    bf.type = 'lowpass'; bf.frequency.value = 200;
+    bass.connect(bf).connect(bg).connect(musicGain);
+    bass.start(now); bass.stop(now + duration * 1.2);
+  }
+}
+
 function updateAudio(dt) {
   if (!audioCtx) return;
-  const playing = gameState === STATE.PLAYING;
-  const desertVol = transitioning ? lerp(currentBiome === BIOME.DESERT ? 0.006 : 0, currentBiome === BIOME.DESERT ? 0 : 0.006, transitionProgress) : (currentBiome === BIOME.DESERT ? 0.006 : 0);
-  const forestVol = transitioning ? lerp(currentBiome === BIOME.FOREST ? 0.008 : 0, currentBiome === BIOME.FOREST ? 0 : 0.008, transitionProgress) : (currentBiome === BIOME.FOREST ? 0.008 : 0);
-  ambientDesertGain.gain.value = desertVol;
-  ambientForestGain.gain.value = forestVol;
-  ambientForestGain2.gain.value = forestVol * 0.5;
-  const ef = 45 + speed * 12 + (nitroActive ? 25 : 0);
-  engineOsc.frequency.value = ef;
-  engineOsc2.frequency.value = ef * 2;
-  engineGain.gain.value = playing ? 0.018 : 0.005;
-  engineGain2.gain.value = playing ? 0.008 : 0.002;
+  if (gameState !== STATE.PLAYING) return;
+
+  // Switch melody based on biome
+  currentMusicNotes = currentBiome === BIOME.DESERT ? MUSIC_NOTES_DESERT : MUSIC_NOTES_FOREST;
+
+  // Tempo increases with speed
+  const bpm = 100 + speed * 8 + (nitroActive ? 30 : 0);
+  const beatDuration = 60 / bpm;
+
+  musicTimer -= dt;
+  if (musicTimer <= 0) {
+    const note = currentMusicNotes[musicStep % currentMusicNotes.length];
+    playMusicNote(note, beatDuration * 0.8);
+    musicStep++;
+    musicTimer = beatDuration;
+  }
+
+  // Volume
+  musicGain.gain.value = 0.07;
 }
 
 // ═══════════ INPUT ═══════════
